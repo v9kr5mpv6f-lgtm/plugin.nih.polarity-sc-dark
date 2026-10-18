@@ -28,7 +28,11 @@ pub(crate) enum MatchCurveState {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct MatchCurveFit {
     pub(crate) intercept: f32,
+    // The centre frequency and slope the fit was made with. They are fixed by the user's own
+    // parameters, so the editor does not write them back and only the tests read them.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) center_frequency: f32,
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) slope: f32,
     pub(crate) curve: f32,
     pub(crate) points: [CurvePoint; MAX_THRESHOLD_CURVE_POINTS],
@@ -456,6 +460,7 @@ fn fit_quadratic_fixed_center_slope(
 }
 
 #[cfg(test)]
+#[allow(clippy::needless_range_loop)] // plain matrix indexing reads best here
 fn solve_3x3(mut matrix: [[f64; 3]; 3], mut rhs: [f64; 3]) -> Option<[f64; 3]> {
     for pivot_idx in 0..3 {
         let mut best_row = pivot_idx;

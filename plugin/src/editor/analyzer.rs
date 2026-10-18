@@ -299,16 +299,14 @@ impl View for Analyzer {
                     meta.consume();
                 }
             }
-            WindowEvent::MouseMove(x, y) => {
-                if self.drag_active {
-                    if let Some(point_index) = self.selected_point_index {
-                        let bounds = cx.bounds();
-                        let (frequency, offset_db) = self.screen_to_point_values(bounds, *x, *y);
-                        self.set_point_position(cx, point_index, frequency, offset_db);
-                    }
-
-                    meta.consume();
+            WindowEvent::MouseMove(x, y) if self.drag_active => {
+                if let Some(point_index) = self.selected_point_index {
+                    let bounds = cx.bounds();
+                    let (frequency, offset_db) = self.screen_to_point_values(bounds, *x, *y);
+                    self.set_point_position(cx, point_index, frequency, offset_db);
                 }
+
+                meta.consume();
             }
             _ => {}
         });
