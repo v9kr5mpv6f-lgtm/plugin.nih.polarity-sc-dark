@@ -66,6 +66,21 @@ To run the standalone binary:
 rustup run stable cargo run -p slackwater --bin slackwater_standalone --release
 ```
 
+### Audio Unit (macOS)
+
+nih-plug builds VST3 and CLAP. The Audio Unit is the CLAP wrapped with
+[clap-wrapper](https://github.com/free-audio/clap-wrapper) as an AUv2 effect (`aufx` / `Slkw` /
+`Oskl`), with the CLAP embedded in the bundle. Build the CLAP first, then:
+
+```shell
+cmake -S au -B au/build -G Ninja -DSLACKWATER_CLAP=target/bundled/Slackwater.clap
+cmake --build au/build
+codesign --force --deep -s - au/build/Slackwater.component
+```
+
+Copy the `.component` to `~/Library/Audio/Plug-Ins/Components` and check it with
+`auval -v aufx Slkw Oskl`.
+
 ## GUI Development
 
 The plugin theme lives at `plugin/src/editor/theme.css`. Use the `hot-reload`
