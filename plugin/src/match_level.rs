@@ -41,11 +41,41 @@ impl MatchRuntime {
         }
     }
 
-    /// Requests a new match run. The audio thread will pick this up on its next block.
-    pub(crate) fn request(&self) {
-        self.output_gain.store(1.0, Ordering::Release);
-        self.state
-            .store(MatchState::Requested as u8, Ordering::Release);
+    /// Requests a new match run, unless one is already in flight. The audio thread will pick it up
+    /// on its next block. Returns whether a run was started, so a second click while measuring
+    /// does not spawn a second poller that would later report a bogus failure.
+    ///
+    /// A finished result nobody collected (its editor went away) does not block a new request; it
+    /// is discarded.
+    pub(crate) fn try_request(&self) -> bool {
+        let started = self
+            .state
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |state| {
+                if state == MatchState::Requested as u8 || state == MatchState::Running as u8 {
+                    None
+                } else {
+                    Some(MatchState::Requested as u8)
+                }
+            })
+            .is_ok();
+        if started {
+            self.output_gain.store(1.0, Ordering::Release);
+        }
+
+        started
+    }
+
+    /// Gives up on a run that produced no result in time (the host is stopped, say) so the next
+    /// click can start a new one. A result that raced in is left for [`take_finished_result()`].
+    pub(crate) fn abandon(&self) {
+        for in_flight in [MatchState::Requested, MatchState::Running] {
+            let _ = self.state.compare_exchange(
+                in_flight as u8,
+                MatchState::Idle as u8,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            );
+        }
     }
 
     /// Transitions `Requested` to `Running` on the audio thread. Only the caller that wins
@@ -231,6 +261,49 @@ fn buffer_energy(buffer: &Buffer, frames: usize) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn second_request_is_refused_while_a_run_is_in_flight() {
+        let runtime = MatchRuntime::new();
+
+        assert!(runtime.try_request());
+        assert!(!runtime.try_request(), "refused while requested");
+        assert!(runtime.begin_running_if_requested());
+        assert!(!runtime.try_request(), "refused while measuring");
+
+        runtime.publish_result(Some(2.0));
+        assert!(matches!(
+            runtime.take_finished_result(),
+            Some(MatchResult::Matched(gain)) if gain == 2.0
+        ));
+        assert!(runtime.try_request(), "allowed again once collected");
+    }
+
+    #[test]
+    fn abandoned_run_can_be_restarted() {
+        let runtime = MatchRuntime::new();
+        assert!(runtime.try_request());
+        assert!(runtime.begin_running_if_requested());
+
+        runtime.abandon();
+
+        assert!(runtime.take_finished_result().is_none());
+        assert!(runtime.try_request());
+    }
+
+    #[test]
+    fn uncollected_result_does_not_lock_out_new_requests() {
+        let runtime = MatchRuntime::new();
+        assert!(runtime.try_request());
+        assert!(runtime.begin_running_if_requested());
+        runtime.publish_result(Some(2.0));
+
+        assert!(runtime.try_request());
+        assert!(
+            runtime.take_finished_result().is_none(),
+            "stale result discarded"
+        );
+    }
 
     #[test]
     fn unity_match_gain() {

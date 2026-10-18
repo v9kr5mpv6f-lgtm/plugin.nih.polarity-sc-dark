@@ -91,6 +91,11 @@ impl View for MatchCurveButton {
             | WindowEvent::MouseTripleClick(MouseButton::Left) => {
                 meta.consume();
 
+                // See `MatchButton`: ignore clicks while a curve match is already running.
+                if !self.match_curve_runtime.try_request() {
+                    return;
+                }
+
                 self.delta_active.store(false, Ordering::Relaxed);
                 if self.bypass_param.unmodulated_normalized_value() >= 0.5 {
                     self.bypass_param.begin_set_parameter(cx);
@@ -98,7 +103,6 @@ impl View for MatchCurveButton {
                     self.bypass_param.end_set_parameter(cx);
                 }
                 cx.emit(MatchCurveEvent::Started);
-                self.match_curve_runtime.request();
 
                 let runtime = self.match_curve_runtime.clone();
                 cx.spawn(move |proxy| {
@@ -109,7 +113,11 @@ impl View for MatchCurveButton {
                             return;
                         }
                         if Instant::now() >= deadline {
-                            let _ = proxy.emit(MatchCurveEvent::Result(MatchCurveResult::Failed));
+                            runtime.abandon();
+                            let result = runtime
+                                .take_finished_result()
+                                .unwrap_or(MatchCurveResult::Failed);
+                            let _ = proxy.emit(MatchCurveEvent::Result(result));
                             return;
                         }
                         std::thread::sleep(Duration::from_millis(100));

@@ -61,6 +61,12 @@ impl View for MatchButton {
             | WindowEvent::MouseTripleClick(MouseButton::Left) => {
                 meta.consume();
 
+                // A second click while a match is running would spawn a second poller, which
+                // then reports a bogus failure when its 15 s deadline passes.
+                if !self.match_runtime.try_request() {
+                    return;
+                }
+
                 self.delta_active.store(false, Ordering::Relaxed);
                 if self.bypass_param.unmodulated_normalized_value() >= 0.5 {
                     self.bypass_param.begin_set_parameter(cx);
@@ -68,7 +74,6 @@ impl View for MatchButton {
                     self.bypass_param.end_set_parameter(cx);
                 }
                 cx.emit(MatchEvent::Started);
-                self.match_runtime.request();
 
                 // vizia_baseview's timers don't tick on this surface, so we poll the
                 // shared runtime from a small worker task instead.
@@ -81,7 +86,13 @@ impl View for MatchButton {
                             return;
                         }
                         if Instant::now() >= deadline {
-                            let _ = proxy.emit(MatchEvent::Result(MatchResult::Failed));
+                            // Nothing came back (the host is stopped, say). Free the runtime so
+                            // the next click can start over; a result that raced in is kept.
+                            runtime.abandon();
+                            let result = runtime
+                                .take_finished_result()
+                                .unwrap_or(MatchResult::Failed);
+                            let _ = proxy.emit(MatchEvent::Result(result));
                             return;
                         }
                         std::thread::sleep(Duration::from_millis(100));

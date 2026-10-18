@@ -111,9 +111,32 @@ impl MatchCurveRuntime {
         }
     }
 
-    pub(crate) fn request(&self) {
+    /// Requests a new curve match, unless one is already in flight. Returns whether a run was
+    /// started. See [`MatchRuntime::try_request()`][crate::match_level::MatchRuntime].
+    pub(crate) fn try_request(&self) -> bool {
         self.state
-            .store(MatchCurveState::Requested as u8, Ordering::Release);
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |state| {
+                if state == MatchCurveState::Requested as u8
+                    || state == MatchCurveState::Running as u8
+                {
+                    None
+                } else {
+                    Some(MatchCurveState::Requested as u8)
+                }
+            })
+            .is_ok()
+    }
+
+    /// Gives up on a run that produced no result in time so the next click can start a new one.
+    pub(crate) fn abandon(&self) {
+        for in_flight in [MatchCurveState::Requested, MatchCurveState::Running] {
+            let _ = self.state.compare_exchange(
+                in_flight as u8,
+                MatchCurveState::Idle as u8,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            );
+        }
     }
 
     pub(crate) fn begin_running_if_requested(&self) -> bool {
@@ -764,6 +787,19 @@ mod tests {
             runtime.take_finished_result().is_none(),
             "result is taken once"
         );
+    }
+
+    #[test]
+    fn second_curve_request_is_refused_while_a_run_is_in_flight() {
+        let runtime = MatchCurveRuntime::new();
+
+        assert!(runtime.try_request());
+        assert!(!runtime.try_request(), "refused while requested");
+        assert!(runtime.begin_running_if_requested());
+        assert!(!runtime.try_request(), "refused while measuring");
+
+        runtime.abandon();
+        assert!(runtime.try_request(), "allowed again after abandoning");
     }
 
     #[test]
