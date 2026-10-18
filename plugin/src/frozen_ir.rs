@@ -58,6 +58,10 @@ impl FrozenIrData {
 /// Renders the frozen snapshot into per-channel IR sample buffers. Frozen state is
 /// stored as spectral gain deltas, so this runs an offline STFT->gain->iSTFT pass to
 /// turn it back into time-domain audio.
+///
+/// The returned IR is centred: the main peak sits at index `window_size` (half of the exported
+/// length), with the pre-ringing before it and the tail after it. Convolving with it delays the
+/// signal by `window_size` samples.
 pub fn render_frozen_ir(snapshot: &FrozenIrData) -> Result<Vec<Vec<f32>>, String> {
     validate_snapshot(snapshot)?;
 
@@ -72,7 +76,12 @@ pub fn render_frozen_ir(snapshot: &FrozenIrData) -> Result<Vec<Vec<f32>>, String
 
     let rendered = process_signal_with_snapshot(snapshot, channels)?;
 
-    let export_start = impulse_offset + snapshot.window_size;
+    // The STFT delays everything by one window, so the response to the impulse is centred at
+    // `impulse_offset + window_size`. The response is roughly symmetric (the frozen gains are
+    // magnitude-only), so exporting from the centre onwards would drop the half that precedes it
+    // and flatten any narrow feature in the curve. Export a window centred on it instead.
+    let response_centre = impulse_offset + snapshot.window_size;
+    let export_start = response_centre - exported_len / 2;
     Ok(rendered
         .into_iter()
         .map(|channel| channel[export_start..export_start + exported_len].to_vec())
@@ -125,11 +134,6 @@ fn validate_snapshot(snapshot: &FrozenIrData) -> Result<(), String> {
     Ok(())
 }
 
-/// First non-DC bin to keep once we suppress DC and the first few ultra-low bins.
-fn first_non_dc_bin_idx(snapshot: &FrozenIrData) -> usize {
-    (20.0 / ((snapshot.sample_rate / 2.0) / snapshot.num_bins() as f32)).floor() as usize + 1
-}
-
 /// Runs the offline STFT->gain->iSTFT pipeline against a snapshot's bin gains. The
 /// input `channels` must match `snapshot.num_channels` and all share the same length.
 fn process_signal_with_snapshot(
@@ -154,7 +158,6 @@ fn process_signal_with_snapshot(
     }
 
     let num_bins = snapshot.num_bins();
-    let first_non_dc_bin_idx = first_non_dc_bin_idx(snapshot);
     let gain_compensation =
         ((snapshot.overlap_times as f32 / 4.0) * 1.5).recip() / snapshot.window_size as f32;
     let input_gain = gain_compensation.sqrt();
@@ -190,13 +193,6 @@ fn process_signal_with_snapshot(
             {
                 processing_error = Some(format!("forward FFT failed: {err}"));
                 return;
-            }
-
-            for bin in complex_fft_buffer
-                .iter_mut()
-                .take(first_non_dc_bin_idx.min(num_bins))
-            {
-                *bin = Complex32::default();
             }
 
             for (bin, gain_db) in complex_fft_buffer
@@ -295,11 +291,17 @@ mod tests {
     }
 
     fn stable_bin_range(snapshot: &FrozenIrData) -> std::ops::Range<usize> {
-        let start = first_non_dc_bin_idx(snapshot)
-            .max(64)
-            .min(snapshot.num_bins());
+        let start = 64.min(snapshot.num_bins());
         let end = snapshot.num_bins().saturating_sub(8).max(start);
         start..end
+    }
+
+    fn peak_index(ir: &[f32]) -> usize {
+        ir.iter()
+            .enumerate()
+            .max_by(|a, b| a.1.abs().total_cmp(&b.1.abs()))
+            .map(|(idx, _)| idx)
+            .unwrap()
     }
 
     #[test]
@@ -309,6 +311,8 @@ mod tests {
         let ir = &rendered[0];
 
         assert_eq!(ir.len(), snapshot.exported_len());
+        // Centred export: the pre-ringing half is kept, so the peak is mid-file, not at index 0.
+        assert_eq!(peak_index(ir), snapshot.window_size);
         for bin_idx in stable_bin_range(&snapshot) {
             let actual_db = transfer_function_db(ir, snapshot.window_size, bin_idx);
             assert!(actual_db.abs() < 1.0);
@@ -349,5 +353,57 @@ mod tests {
         let right_db = transfer_function_db(&rendered[1], snapshot.window_size, probe_bin);
         assert!((left_db + 6.0).abs() < 1.0);
         assert!((right_db - 3.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn narrow_notch_keeps_its_depth_through_export() {
+        let mut snapshot = make_snapshot(512, 4, 1);
+        for bin_idx in 120..126 {
+            snapshot.gain_difference_db[0][bin_idx] = -30.0;
+        }
+
+        let rendered = render_frozen_ir(&snapshot).unwrap();
+        let notch_db = transfer_function_db(&rendered[0], snapshot.window_size, 123);
+
+        // The plugin itself smears a 6-bin notch to roughly -14 dB (Hann windowing). Exporting
+        // from the response centre onwards used to leave only about -3 dB of it.
+        assert!(notch_db < -10.0, "notch only reached {notch_db:.1} dB");
+    }
+
+    #[test]
+    fn alternating_comb_stays_close_to_the_rendered_response() {
+        let mut snapshot = make_snapshot(2048, 16, 1);
+        for bin_idx in 1..snapshot.num_bins() {
+            snapshot.gain_difference_db[0][bin_idx] =
+                if (bin_idx / 8) % 2 == 0 { 12.0 } else { -12.0 };
+        }
+
+        let rendered = render_frozen_ir(&snapshot).unwrap();
+        let worst_db = stable_bin_range(&snapshot)
+            .map(|bin_idx| {
+                let actual = transfer_function_db(&rendered[0], snapshot.window_size, bin_idx);
+                (actual - snapshot.gain_difference_db[0][bin_idx]).abs()
+            })
+            .fold(0.0f32, f32::max);
+
+        // 19.2 dB with the one-sided export, 10.8 dB centred (the rest is the plugin's own
+        // Hann smearing of an 8-bin comb).
+        assert!(worst_db < 12.0, "worst bin was {worst_db:.1} dB off");
+    }
+
+    #[test]
+    fn sub_20_hz_bins_are_not_zeroed() {
+        // At 32768 @ 48 kHz the old export zeroed bins 0..14 (0-20 Hz), which the realtime path
+        // never does: it only keeps upwards compression off them.
+        let snapshot = make_snapshot(32768, 4, 1);
+        let rendered = render_frozen_ir(&snapshot).unwrap();
+
+        for bin_idx in [2usize, 6, 12] {
+            let db = transfer_function_db(&rendered[0], snapshot.window_size, bin_idx);
+            assert!(
+                db.abs() < 1.0,
+                "bin {bin_idx} is {db:.1} dB, expected ~0 dB"
+            );
+        }
     }
 }

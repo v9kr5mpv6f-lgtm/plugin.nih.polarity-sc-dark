@@ -482,10 +482,11 @@ impl Plugin for SpectralCompressor {
             // versions without reallocating.
             let fft_plan = &mut self.plan_for_order[window_order - MIN_WINDOW_ORDER];
             let num_bins = self.complex_fft_buffer.len();
-            // The Hann window function spreads the DC signal out slightly, so we'll clear all
-            // 0-20 Hz bins for this. With small window sizes you probably don't want this as it
-            // would result in a significant low-pass filter. When it's disabled, the DC bin will
-            // also be compressed.
+            // The Hann window function spreads the DC signal out slightly into the neighbouring
+            // bins. Everything below this index (the DC bin, and up to 20 Hz with large windows) is
+            // kept out of the upwards compression so a DC offset or subsonic rumble never gets
+            // boosted. These bins are not cleared, and downwards compression still applies to them.
+            // The frozen IR export relies on this: it must not zero them either.
             let first_non_dc_bin_idx = ((20.0
                 / ((self.buffer_config.sample_rate / 2.0) / num_bins as f32))
                 .floor() as usize
