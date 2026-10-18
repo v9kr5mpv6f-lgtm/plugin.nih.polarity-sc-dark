@@ -32,8 +32,11 @@ use std::time::{Duration, SystemTime};
 use self::analyzer::Analyzer;
 use self::delta_button::DeltaButton;
 use self::export_ir_button::ExportIrButton;
+use self::help_button::HelpButton;
+use self::hint::{hinted_row, hover_tip, param_row, TipPlacement};
 use self::match_button::MatchButton;
 use self::match_curve_button::{ClearCurveButton, MatchCurveButton};
+use self::tooltips::parameter_tooltip;
 use crate::analyzer::AnalyzerData;
 use crate::compressor_bank::ThresholdMode;
 use crate::curve_preset::{
@@ -48,9 +51,12 @@ use crate::{SpectralCompressor, SpectralCompressorParams};
 mod analyzer;
 mod delta_button;
 mod export_ir_button;
+mod help_button;
+mod hint;
 mod match_button;
 mod match_curve_button;
 pub mod theme;
+mod tooltips;
 
 /// The entire GUI's width, in logical pixels.
 const GUI_WIDTH: u32 = 1360;
@@ -360,6 +366,14 @@ impl Model for ExportUiModel {
             },
         );
 
+        event.map(
+            |help_event: &help_button::HelpEvent, _meta| match help_event {
+                help_button::HelpEvent::Finished(result) => {
+                    self.status_text = help_button::help_status_text(result);
+                }
+            },
+        );
+
         // Keep export state in sync when parameters are changed from the UI/host.
         event.map(|_param_event: &RawParamEvent, _meta| {
             self.refresh_export_availability();
@@ -641,6 +655,21 @@ pub(crate) fn create(editor_state: Arc<ViziaState>, editor_data: Data) -> Option
     )
 }
 
+/// The content of a tooltip: one wrapped paragraph.
+fn tip(text: &'static str) -> impl FnOnce(&mut Context) {
+    move |cx| {
+        Label::new(cx, text);
+    }
+}
+
+/// Gives `row` the tooltip of the parameter called `name`, if it has one.
+fn with_param_tooltip<'a, V: View>(row: Handle<'a, V>, name: &str) -> Handle<'a, V> {
+    match parameter_tooltip(name) {
+        Some(text) => row.tooltip(tip(text)),
+        None => row,
+    }
+}
+
 /// Builds the left/main side of the editor.
 fn main_column(cx: &mut Context) {
     VStack::new(cx, |cx| {
@@ -657,7 +686,9 @@ fn header_bar(cx: &mut Context) {
 
     HStack::new(cx, |cx| {
         HStack::new(cx, |cx| {
-            DeltaButton::new(cx, Data::delta_active, "Delta").class("header-btn");
+            DeltaButton::new(cx, Data::delta_active, "Delta")
+                .class("header-btn")
+                .tooltip(tip(tooltips::DELTA));
             MatchButton::new(
                 cx,
                 Data::match_runtime,
@@ -665,10 +696,16 @@ fn header_bar(cx: &mut Context) {
                 global_params,
                 "Match",
             )
-            .class("header-btn");
-            ParamButton::new(cx, global_params, |params| &params.bypass)
+            .class("header-btn")
+            .tooltip(tip(tooltips::MATCH_LEVEL));
+            let bypass = ParamButton::new(cx, global_params, |params| &params.bypass)
                 .with_label("Bypass")
                 .class("header-btn");
+            with_param_tooltip(bypass, "Bypass");
+            HelpButton::new(cx, "Help")
+                .class("header-btn")
+                .class("help-btn")
+                .tooltip(tip(tooltips::HELP));
         })
         .class("header-button-group");
 
@@ -727,24 +764,16 @@ fn global_column(cx: &mut Context) {
             HStack::new(cx, |cx| {
                 Label::new(cx, "FFT Window").class("label");
                 HStack::new(cx, |cx| {
-                    ParamSlider::new(cx, global_params, |params| &params.window_size_order)
-                        .set_style(ParamSliderStyle::FromLeft)
-                        .class("fft-window-slider")
-                        .tooltip(|cx| {
-                            Label::new(
-                                cx,
-                                "Window size controls the FFT analysis length. \nLarger windows improve frequency resolution but respond more slowly.",
-                            );
-                        });
-                    ParamSlider::new(cx, global_params, |params| &params.overlap_times_order)
-                        .set_style(ParamSliderStyle::FromLeft)
-                        .class("fft-window-slider")
-                        .tooltip(|cx| {
-                            Label::new(
-                                cx,
-                                "Window overlap controls how often overlapping analysis windows are processed. \nMore overlap is smoother but uses more CPU.",
-                            );
-                        });
+                    let window_size =
+                        ParamSlider::new(cx, global_params, |params| &params.window_size_order)
+                            .set_style(ParamSliderStyle::FromLeft)
+                            .class("fft-window-slider");
+                    with_param_tooltip(window_size, "Window Size");
+                    let overlap =
+                        ParamSlider::new(cx, global_params, |params| &params.overlap_times_order)
+                            .set_style(ParamSliderStyle::FromLeft)
+                            .class("fft-window-slider");
+                    with_param_tooltip(overlap, "Window Overlap");
                 })
                 .class("fft-window-group");
             })
@@ -752,21 +781,27 @@ fn global_column(cx: &mut Context) {
         } else if name == "Window Overlap" {
             // Rendered together with Window Size above.
         } else if name == "Output Gain" || name == "Mix" || name == "Attack" || name == "Release" {
-            HStack::new(cx, |cx| {
-                Label::new(cx, name).class("label");
-                GenericUi::draw_widget(cx, global_params, param_ptr);
-            })
-            .class("row");
+            param_row(
+                cx,
+                name,
+                global_params,
+                param_ptr,
+                parameter_tooltip(name),
+                TipPlacement::Below,
+            );
         } else if name == "Freeze" {
             HStack::new(cx, |cx| {
                 Label::new(cx, name).class("label");
                 HStack::new(cx, |cx| {
-                    ParamButton::new(cx, global_params, |params| &params.compressor_freeze)
-                        .with_label("Freeze")
-                        .class("freeze-button");
+                    let freeze =
+                        ParamButton::new(cx, global_params, |params| &params.compressor_freeze)
+                            .with_label("Freeze")
+                            .class("freeze-button");
+                    with_param_tooltip(freeze, "Freeze");
                     ExportIrButton::new(cx, Data::frozen_ir_data, "Export IR...")
                         .disabled(ExportUiModel::can_export.map(|can_export| !*can_export))
-                        .class("freeze-button");
+                        .class("freeze-button")
+                        .tooltip(tip(tooltips::EXPORT_IR));
                 })
                 .class("freeze-button-group");
             })
@@ -788,22 +823,14 @@ fn threshold_column(cx: &mut Context) {
             HStack::new(cx, |cx| {
                 Label::new(cx, "Threshold").class("label");
                 HStack::new(cx, |cx| {
-                    ParamSlider::new(cx, threshold_params, |params| &params.center_frequency)
-                        .class("threshold-slider")
-                        .tooltip(|cx| {
-                            Label::new(
-                                cx,
-                                "Threshold center is the frequency where the global threshold value is anchored.",
-                            );
-                        });
-                    ParamSlider::new(cx, threshold_params, |params| &params.curve_slope)
-                        .class("threshold-slider")
-                        .tooltip(|cx| {
-                            Label::new(
-                                cx,
-                                "Threshold slope tilts the threshold curve across octaves. In Pink Noise mode, 3 dB/oct is the neutral default.",
-                            );
-                        });
+                    let center =
+                        ParamSlider::new(cx, threshold_params, |params| &params.center_frequency)
+                            .class("threshold-slider");
+                    with_param_tooltip(center, "Threshold Center");
+                    let slope =
+                        ParamSlider::new(cx, threshold_params, |params| &params.curve_slope)
+                            .class("threshold-slider");
+                    with_param_tooltip(slope, "Threshold Slope");
                 })
                 .class("threshold-slider-group");
             })
@@ -811,16 +838,22 @@ fn threshold_column(cx: &mut Context) {
         } else if name == "Threshold Slope" {
             // Rendered together with Threshold Center above.
         } else {
-            HStack::new(cx, |cx| {
-                Label::new(cx, name).class("label");
-
-                if name == "Mode" {
-                    mode_picklist(cx);
-                } else {
-                    GenericUi::draw_widget(cx, threshold_params, param_ptr);
-                }
-            })
-            .class("row");
+            if name == "Mode" {
+                hinted_row(cx, parameter_tooltip(name), TipPlacement::Below, |cx| {
+                    hover_tip(Label::new(cx, name).class("label"));
+                    hover_tip(mode_picklist(cx));
+                })
+                .class("row");
+            } else {
+                param_row(
+                    cx,
+                    name,
+                    threshold_params,
+                    param_ptr,
+                    parameter_tooltip(name),
+                    TipPlacement::Below,
+                );
+            }
         }
 
         if !curve_controls_drawn && name == "Threshold Slope" {
@@ -835,8 +868,11 @@ fn threshold_column(cx: &mut Context) {
                         global_params,
                         "Match",
                     )
-                    .class("threshold-curve-button");
-                    ClearCurveButton::new(cx, "Clear").class("threshold-curve-button");
+                    .class("threshold-curve-button")
+                    .tooltip(tip(tooltips::MATCH_CURVE));
+                    ClearCurveButton::new(cx, "Clear")
+                        .class("threshold-curve-button")
+                        .tooltip(tip(tooltips::CLEAR_CURVE));
                 })
                 .class("curve-matching-button-group");
             })
@@ -847,12 +883,14 @@ fn threshold_column(cx: &mut Context) {
                 HStack::new(cx, |cx| {
                     curve_preset_picklist(cx);
                     CurvePresetButton::new(cx, CurvePresetButtonAction::SaveRequested, "Save")
-                        .class("curve-preset-button");
+                        .class("curve-preset-button")
+                        .tooltip(tip(tooltips::SAVE_PRESET));
                     CurvePresetButton::new(cx, CurvePresetButtonAction::DeleteSelected, "Del")
                         .disabled(
                             ExportUiModel::can_delete_curve_preset.map(|can_delete| !*can_delete),
                         )
-                        .class("curve-preset-button");
+                        .class("curve-preset-button")
+                        .tooltip(tip(tooltips::DELETE_PRESET));
                 })
                 .class("curve-preset-control-group");
             })
@@ -875,18 +913,16 @@ fn upwards_column(cx: &mut Context) {
     make_column(cx, "Upwards", Some("flood"), Some("upwards-col"), |cx| {
         let upwards_compressor_params = Data::params.map(|p| p.compressors.upwards.clone());
         GenericUi::new_custom(cx, upwards_compressor_params, |cx, param_ptr| {
-            HStack::new(cx, |cx| {
-                Label::new(
-                    cx,
-                    unsafe { param_ptr.name() }
-                        .strip_prefix("Upwards ")
-                        .expect("missing prefix"),
-                )
-                .class("label");
-
-                GenericUi::draw_widget(cx, upwards_compressor_params, param_ptr);
-            })
-            .class("row");
+            let full_name = unsafe { param_ptr.name() };
+            param_row(
+                cx,
+                full_name.strip_prefix("Upwards ").expect("missing prefix"),
+                upwards_compressor_params,
+                param_ptr,
+                parameter_tooltip(full_name),
+                // These rows sit at the bottom of the window, so the tooltip opens upwards.
+                TipPlacement::Above,
+            );
         });
     });
 }
@@ -896,18 +932,18 @@ fn downwards_column(cx: &mut Context) {
     make_column(cx, "Downwards", Some("ebb"), Some("downwards-col"), |cx| {
         let downwards_compressor_params = Data::params.map(|p| p.compressors.downwards.clone());
         GenericUi::new_custom(cx, downwards_compressor_params, |cx, param_ptr| {
-            HStack::new(cx, |cx| {
-                Label::new(
-                    cx,
-                    unsafe { param_ptr.name() }
-                        .strip_prefix("Downwards ")
-                        .expect("missing prefix"),
-                )
-                .class("label");
-
-                GenericUi::draw_widget(cx, downwards_compressor_params, param_ptr);
-            })
-            .class("row");
+            let full_name = unsafe { param_ptr.name() };
+            param_row(
+                cx,
+                full_name
+                    .strip_prefix("Downwards ")
+                    .expect("missing prefix"),
+                downwards_compressor_params,
+                param_ptr,
+                parameter_tooltip(full_name),
+                // These rows sit at the bottom of the window, so the tooltip opens upwards.
+                TipPlacement::Above,
+            );
         });
     });
 }
@@ -932,12 +968,7 @@ fn curve_preset_picklist(cx: &mut Context) {
         true,
     )
     .class("curve-preset-picklist")
-    .tooltip(|cx| {
-        Label::new(
-            cx,
-            "Threshold curve presets change the displayed threshold curve shape.",
-        );
-    })
+    .tooltip(tip(tooltips::CURVE_PRESETS))
     .on_select(|cx, index| {
         if index == 0 {
             return;
@@ -964,7 +995,7 @@ fn prompt_for_curve_preset_path(dir: &Path) -> Option<PathBuf> {
 }
 
 /// Custom threshold mode selector that writes raw parameter automation events.
-fn mode_picklist(cx: &mut Context) {
+fn mode_picklist(cx: &mut Context) -> Handle<'_, PickList> {
     let params = Data::params.get(cx);
 
     PickList::new(
@@ -988,7 +1019,7 @@ fn mode_picklist(cx: &mut Context) {
             mode_param, normalized,
         ));
         cx.emit(RawParamEvent::EndSetParameter(mode_param));
-    });
+    })
 }
 
 /// Utility helper to render a titled editor column with an optional small tag beside the title
@@ -1021,5 +1052,76 @@ fn make_column(
 
     if let Some(cls) = css_class {
         col.class(cls);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nih_plug::wrapper::state::PluginState;
+
+    /// A GUI context that does nothing, so the whole editor can be built without a host.
+    struct NoHost;
+
+    impl GuiContext for NoHost {
+        fn plugin_api(&self) -> PluginApi {
+            PluginApi::Clap
+        }
+        fn request_resize(&self) -> bool {
+            false
+        }
+        unsafe fn raw_begin_set_parameter(&self, _param: ParamPtr) {}
+        unsafe fn raw_set_parameter_normalized(&self, _param: ParamPtr, _normalized: f32) {}
+        unsafe fn raw_end_set_parameter(&self, _param: ParamPtr) {}
+        fn get_state(&self) -> PluginState {
+            PluginState {
+                version: String::new(),
+                params: Default::default(),
+                fields: Default::default(),
+            }
+        }
+        fn set_state(&self, _state: PluginState) {}
+    }
+
+    /// The editor's whole view tree builds without a panic (a lens used outside the model that
+    /// provides it fails here, not later when a user opens the window inside a host).
+    #[test]
+    fn the_whole_editor_builds() {
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                let plugin = SpectralCompressor::default();
+                let params = plugin.params.clone();
+                let cx = &mut Context::default();
+
+                Data {
+                    params: params.clone(),
+                    mode_options: ThresholdMode::variants()
+                        .iter()
+                        .map(|name| (*name).to_owned())
+                        .collect(),
+                    delta_active: plugin.delta_active.clone(),
+                    match_runtime: plugin.match_runtime.clone(),
+                    match_curve_runtime: plugin.match_curve_runtime.clone(),
+                    analyzer_data: plugin.analyzer_output_data.clone(),
+                    frozen_ir_data: plugin.frozen_ir_output_data.clone(),
+                    sample_rate: plugin.sample_rate.clone(),
+                }
+                .build(cx);
+                ExportUiModel::build(
+                    cx,
+                    plugin.frozen_ir_output_data.clone(),
+                    params,
+                    Arc::new(NoHost),
+                );
+
+                HStack::new(cx, |cx| {
+                    main_column(cx);
+                    analyzer_column(cx);
+                });
+            })
+            .unwrap()
+            .join()
+            .expect("the editor panicked while building");
     }
 }

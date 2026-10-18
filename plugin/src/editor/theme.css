@@ -485,3 +485,17 @@ label.icon,
 dropdown .title .icon {
   font-family: "tabler-icons";
 }
+
+/* Help button: a little narrower than Delta / Match / Bypass so the header keeps its status line. */
+.help-btn {
+  width: 56px;
+}
+
+/* Tooltip text wraps inside the tooltip box. */
+tooltip label {
+  width: 232px;
+  height: auto;
+  text-wrap: true;
+  color: #c8cdf0;
+  font-size: 12;
+}
