@@ -8,11 +8,13 @@
 }
 */
 
-/* Main panel. Keep hex values in sync with editor::theme constants. */
+/* Main panel. Moonpull skin. Keep hex values in sync with editor::theme constants. */
 
 :root {
-  background-color: #232323;
-  color: #ffffff;
+  background-color: #0a0b14;
+  color: #e7eaff;
+  font-family: "Sora";
+  font-weight: light;
 }
 
 /* Layout: main controls column. */
@@ -22,9 +24,9 @@
   row-between: 10px;
   child-left: 1s;
   child-right: 1s;
-  background-color: #232323;
+  background-color: #0a0b14;
   color: #ffffff;
-  border-color: #696969;
+  border-color: #4c5276;
 }
 
 /* Layout: header bar. */
@@ -51,7 +53,7 @@
 }
 
 .match-status {
-  color: #8e8e95;
+  color: #6e76a0;
   top: 1s;
   bottom: 1s;
   left: 10px;
@@ -64,13 +66,15 @@
 }
 
 .plugin-title {
-  font-family: "Noto Sans";
-  font-weight: thin;
-  font-size: 25;
+  font-family: "Sora";
+  font-weight: light;
+  font-size: 27;
 }
 
 .version-label {
-  color: #696969;
+  font-family: "DM Mono";
+  font-size: 10;
+  color: #4c5276;
   top: 1px;
   bottom: 0px;
   left: 5px;
@@ -84,9 +88,9 @@
 }
 
 .column-title {
-  font-family: "Noto Sans";
-  font-weight: thin;
-  font-size: 23;
+  font-family: "Sora";
+  font-weight: light;
+  font-size: 21;
   left: 1s;
   right: 7px;
   bottom: -10px;
@@ -95,10 +99,10 @@
 /* Column accent title colors. */
 
 .upwards-col .column-title {
-  color: #6ac8d8;
+  color: #9fc4ff;
 }
 .downwards-col .column-title {
-  color: #e6b23a;
+  color: #f2b35e;
 }
 
 /* Export button group. */
@@ -117,7 +121,7 @@
 }
 
 .export-status {
-  color: #8e8e95;
+  color: #6e76a0;
   left: 140px;
   right: 0px;
   height: auto;
@@ -132,7 +136,7 @@
 
 .threshold-curve-button {
   width: 88px;
-  background-color: #3a3a3a;
+  background-color: #2f3557;
 }
 
 .curve-preset-control-group {
@@ -143,7 +147,7 @@
 
 .curve-preset-button {
   width: 48px;
-  background-color: #3a3a3a;
+  background-color: #2f3557;
   child-left: 5px;
   child-right: 5px;
 }
@@ -161,7 +165,7 @@
 /* Parameter sliders. */
 
 param-slider {
-  border-color: #3a3a3a;
+  border-color: #2f3557;
   background-color: transparent;
 }
 param-slider:active,
@@ -169,10 +173,10 @@ param-slider:hover {
   background-color: #ffffff0d;
 }
 param-slider .fill {
-  background-color: #4a4a50;
+  background-color: #7c86c433;
 }
 param-slider .fill--modulation {
-  background-color: #5a8aa840;
+  background-color: #9fc4ff40;
 }
 param-slider .value-entry .caret {
   background-color: #ffffff;
@@ -193,10 +197,10 @@ param-slider .value-entry .selection {
 
 tooltip {
   child-space: 6px;
-  background-color: #1a1a1e;
+  background-color: #080914;
   color: #ffffff;
   border-width: 1px;
-  border-color: #505055;
+  border-color: #1d2140;
   border-radius: 3px;
   width: 260px;
   opacity: 0;
@@ -215,14 +219,14 @@ tooltip label {
 /* Parameter buttons. */
 
 param-button {
-  border-color: #3a3a3a;
+  border-color: #2f3557;
   background-color: #ffffff00;
 }
 param-button:hover {
   background-color: #ffffff14;
 }
 param-button:checked {
-  background-color: #4a4a50;
+  background-color: #7c86c433;
 }
 
 /* Dropdown used for the threshold mode enum */
@@ -236,7 +240,7 @@ picklist.mode-picklist dropdown {
   width: 180px;
   height: 30px;
   border-width: 1px;
-  border-color: #3a3a3a;
+  border-color: #2f3557;
   border-radius: 0px;
   background-color: transparent;
 }
@@ -259,15 +263,15 @@ picklist.mode-picklist dropdown .title label {
 
 picklist.mode-picklist dropdown .title .icon {
   width: auto;
-  color: #696969;
+  color: #4c5276;
 }
 
 picklist.mode-picklist popup {
   width: 180px;
   border-width: 1px;
-  border-color: #3a3a3a;
+  border-color: #2f3557;
   border-radius: 0px;
-  background-color: #232323;
+  background-color: #0a0b14;
 }
 
 picklist.mode-picklist popup scrollview {
@@ -275,7 +279,7 @@ picklist.mode-picklist popup scrollview {
 }
 
 picklist.mode-picklist popup list label {
-  color: #b8b8bf;
+  color: #c8cdf0;
 }
 
 picklist.mode-picklist popup list label:hover {
@@ -284,7 +288,7 @@ picklist.mode-picklist popup list label:hover {
 
 picklist.mode-picklist popup list label:checked {
   color: #ffffff;
-  background-color: #4a4a50;
+  background-color: #7c86c433;
 }
 
 picklist.curve-preset-picklist {
@@ -296,7 +300,7 @@ picklist.curve-preset-picklist dropdown {
   width: 76px;
   height: 30px;
   border-width: 1px;
-  border-color: #3a3a3a;
+  border-color: #2f3557;
   border-radius: 0px;
   background-color: transparent;
 }
@@ -320,15 +324,15 @@ picklist.curve-preset-picklist dropdown .title label {
 
 picklist.curve-preset-picklist dropdown .title .icon {
   width: auto;
-  color: #696969;
+  color: #4c5276;
 }
 
 picklist.curve-preset-picklist popup {
   width: 180px;
   border-width: 1px;
-  border-color: #3a3a3a;
+  border-color: #2f3557;
   border-radius: 0px;
-  background-color: #232323;
+  background-color: #0a0b14;
 }
 
 picklist.curve-preset-picklist popup scrollview {
@@ -336,7 +340,7 @@ picklist.curve-preset-picklist popup scrollview {
 }
 
 picklist.curve-preset-picklist popup list label {
-  color: #b8b8bf;
+  color: #c8cdf0;
 }
 
 picklist.curve-preset-picklist popup list label:hover {
@@ -345,28 +349,98 @@ picklist.curve-preset-picklist popup list label:hover {
 
 picklist.curve-preset-picklist popup list label:checked {
   color: #ffffff;
-  background-color: #4a4a50;
+  background-color: #7c86c433;
 }
 
 /* Per-column slider fill accent colors. */
 
 .upwards-col param-slider .fill {
-  background-color: #6ac8d840;
+  background-color: #9fc4ff40;
 }
 .downwards-col param-slider .fill {
-  background-color: #e6b23a40;
+  background-color: #f2b35e40;
 }
 
 /* Spectrum analyzer. */
 
 analyzer {
-  border-color: #505055;
+  border-color: #1d2140;
   border-width: 1px;
   /* Spectrum bar/mesh colors are set in Rust via editor::theme constants. */
-  color: #c8d0eb;
-  background-color: #1a1a1e;
+  color: #9ea6c8;
+  background-color: #080914;
   space: 12px;
   bottom: 12px;
   left: 2px;
   top: 12px;
+}
+
+/* Moonpull: soft rounded controls, tidal accents, monospaced readouts. */
+
+label {
+  font-family: "Sora";
+  font-weight: light;
+}
+
+.label {
+  color: #9ea6c8;
+  font-size: 12.5;
+}
+
+param-slider {
+  border-radius: 6px;
+}
+param-slider .value {
+  font-family: "DM Mono";
+  font-size: 12;
+  color: #e7eaff;
+}
+param-slider .fill {
+  border-radius: 6px;
+}
+
+param-button,
+.header-btn {
+  border-radius: 14px;
+}
+param-button:checked {
+  border-color: #9fc4ff;
+}
+
+picklist dropdown,
+picklist popup {
+  border-radius: 14px;
+}
+picklist.mode-picklist dropdown,
+picklist.curve-preset-picklist dropdown {
+  border-radius: 14px;
+  border-color: #3a4170;
+}
+picklist.mode-picklist popup,
+picklist.curve-preset-picklist popup {
+  border-radius: 10px;
+  background-color: #0d0f1e;
+  border-color: #2f3557;
+}
+
+tooltip {
+  border-radius: 10px;
+  background-color: #11132a;
+  border-color: #2f3557;
+}
+
+.column-tag {
+  font-family: "DM Mono";
+  font-size: 10;
+  color: #5a6fa0;
+  top: 1s;
+  bottom: 0px;
+  right: 8px;
+}
+.downwards-col .column-tag {
+  color: #9a7442;
+}
+
+analyzer {
+  border-radius: 10px;
 }

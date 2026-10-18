@@ -320,8 +320,9 @@ impl View for Analyzer {
 
         // Fill the analyzer background explicitly since custom canvas drawing
         // bypasses the CSS background-color property
+        let corner_radius = cx.scale_factor() * 10.0;
         let mut bg_path = vg::Path::new();
-        bg_path.rect(bounds.x, bounds.y, bounds.w, bounds.h);
+        bg_path.rounded_rect(bounds.x, bounds.y, bounds.w, bounds.h, corner_radius);
         canvas.fill_path(&bg_path, &vg::Paint::color(theme::ANALYZER_BACKGROUND));
 
         draw_frequency_guide_lines(cx, canvas);
@@ -333,6 +334,7 @@ impl View for Analyzer {
         let analyzer_data = analyzer_data.read();
         let nyquist = self.sample_rate.load(Ordering::Relaxed) / 2.0;
 
+        draw_moon(cx, canvas, analyzer_data);
         draw_spectrum(cx, canvas, analyzer_data, nyquist);
         draw_threshold_curve(cx, canvas, analyzer_data);
         draw_gain_reduction(cx, canvas, analyzer_data, nyquist);
@@ -346,20 +348,16 @@ impl View for Analyzer {
 
         // Draw the border last
         let border_width = cx.border_width();
-        let border_color: vg::Color = cx.border_color().into();
+        let border_color = theme::ANALYZER_BORDER;
 
         let mut path = vg::Path::new();
-        {
-            let x = bounds.x + border_width / 2.0;
-            let y = bounds.y + border_width / 2.0;
-            let w = bounds.w - border_width;
-            let h = bounds.h - border_width;
-            path.move_to(x, y);
-            path.line_to(x, y + h);
-            path.line_to(x + w, y + h);
-            path.line_to(x + w, y);
-            path.close();
-        }
+        path.rounded_rect(
+            bounds.x + border_width / 2.0,
+            bounds.y + border_width / 2.0,
+            bounds.w - border_width,
+            bounds.h - border_width,
+            corner_radius,
+        );
 
         let paint = vg::Paint::color(border_color).with_line_width(border_width);
         canvas.stroke_path(&path, &paint);
@@ -504,6 +502,46 @@ fn point_screen_position(
     ))
 }
 
+/// A faint moon behind the analyzer, hung at the threshold's centre frequency. It is decoration
+/// that also tells you where the threshold is anchored, so it follows that parameter.
+fn draw_moon(cx: &mut DrawContext, canvas: &mut Canvas, analyzer_data: &AnalyzerData) {
+    let bounds = cx.bounds();
+    let scale = cx.scale_factor();
+    let center_ln = analyzer_data
+        .curve_params
+        .center_frequency
+        .clamp(
+            THRESHOLD_CURVE_MIN_FREQUENCY_HZ,
+            THRESHOLD_CURVE_MAX_FREQUENCY_HZ,
+        )
+        .ln();
+    let x = bounds.x + (bounds.w * ln_frequency_to_x_t(center_ln).clamp(0.0, 1.0));
+    let y = bounds.y + (bounds.h * 0.30);
+
+    canvas.scissor(bounds.x, bounds.y, bounds.w, bounds.h);
+    let glow_radius = scale * 190.0;
+    let glow = vg::Paint::radial_gradient_stops(
+        x,
+        y,
+        0.0,
+        glow_radius,
+        [
+            (0.0, theme::ANALYZER_MOON_GLOW_INNER),
+            (0.45, theme::ANALYZER_MOON_GLOW_MID),
+            (1.0, theme::ANALYZER_MOON_GLOW_OUTER),
+        ],
+    );
+    let mut glow_path = vg::Path::new();
+    glow_path.circle(x, y, glow_radius);
+    canvas.fill_path(&glow_path, &glow);
+
+    let ring = vg::Paint::color(theme::ANALYZER_MOON_RING).with_line_width(scale);
+    let mut ring_path = vg::Path::new();
+    ring_path.circle(x, y, scale * 34.0);
+    canvas.stroke_path(&ring_path, &ring);
+    canvas.reset_scissor();
+}
+
 /// Draw the spectrum analyzer part of the analyzer. These are drawn as vertical bars until the
 /// spacing between the bars becomes less the line width, at which point it's drawn as a solid mesh
 /// instead.
@@ -516,13 +554,18 @@ fn draw_spectrum(
     let bounds = cx.bounds();
 
     let line_width = cx.scale_factor() * 1.5;
-    let spectrum_color = theme::ANALYZER_SPECTRUM_BARS;
+    // The spectrum is moonlit from above: bright at the top of the analyzer, fading to nothing at
+    // the bottom, for both the individual bars and the solid mesh.
+    let spectrum_gradient = vg::Paint::linear_gradient(
+        0.0,
+        bounds.y,
+        0.0,
+        bounds.y + bounds.h,
+        theme::ANALYZER_SPECTRUM_TOP,
+        theme::ANALYZER_SPECTRUM_BOTTOM,
+    );
     // This is used to draw the individual bars
-    let bars_paint = vg::Paint::color(spectrum_color).with_line_width(line_width);
-    // These colors are used to draw the mesh part of the spectrum. A gradient fades from the
-    // lighter variant on the left to the darker variant on the right.
-    let lighter_spectrum_color = theme::ANALYZER_SPECTRUM_MESH_LIGHT;
-    let darker_spectrum_color = theme::ANALYZER_SPECTRUM_MESH_DARK;
+    let bars_paint = spectrum_gradient.clone().with_line_width(line_width);
 
     // The frequency belonging to a bin in Hz
     let bin_frequency = |bin_idx: f32| (bin_idx / analyzer_data.num_bins as f32) * nyquist_hz;
@@ -613,18 +656,7 @@ fn draw_spectrum(
     mesh_path.line_to(previous_physical_x_coord, mesh_start_y_coordinate);
     mesh_path.close();
 
-    let mesh_paint = vg::Paint::linear_gradient_stops(
-        mesh_start_x_coordiante,
-        0.0,
-        previous_physical_x_coord,
-        0.0,
-        [
-            (0.0, lighter_spectrum_color),
-            (0.707, darker_spectrum_color),
-            (1.0, darker_spectrum_color),
-        ],
-    )
-    .with_anti_alias(false);
+    let mesh_paint = spectrum_gradient.with_anti_alias(false);
     canvas.fill_path(&mesh_path, &mesh_paint);
 }
 
@@ -633,11 +665,16 @@ fn draw_spectrum(
 fn draw_threshold_curve(cx: &mut DrawContext, canvas: &mut Canvas, analyzer_data: &AnalyzerData) {
     let bounds = cx.bounds();
 
-    let line_width = cx.scale_factor() * 3.0;
+    let line_width = cx.scale_factor() * 1.6;
+    let glow_width = cx.scale_factor() * 6.0;
     let downwards_paint =
         vg::Paint::color(theme::ANALYZER_THRESHOLD_DOWNWARDS).with_line_width(line_width);
     let upwards_paint =
         vg::Paint::color(theme::ANALYZER_THRESHOLD_UPWARDS).with_line_width(line_width);
+    let downwards_glow =
+        vg::Paint::color(theme::ANALYZER_THRESHOLD_DOWNWARDS_GLOW).with_line_width(glow_width);
+    let upwards_glow =
+        vg::Paint::color(theme::ANALYZER_THRESHOLD_UPWARDS_GLOW).with_line_width(glow_width);
 
     // This can be done slightly cleverer but for our purposes drawing line segments that are either
     // 1 pixel apart or that split the curve up into 100 segments (whichever results in the least
@@ -645,7 +682,7 @@ fn draw_threshold_curve(cx: &mut DrawContext, canvas: &mut Canvas, analyzer_data
     let curve = Curve::new(&analyzer_data.curve_params);
     let num_points = 100.min(bounds.w.ceil() as usize);
 
-    let mut draw_with_offset = |offset_db: f32, paint: vg::Paint| {
+    let mut draw_with_offset = |offset_db: f32, glow: vg::Paint, paint: vg::Paint| {
         let mut path = vg::Path::new();
         for i in 0..num_points {
             let x_t = i as f32 / (num_points - 1) as f32;
@@ -670,13 +707,14 @@ fn draw_threshold_curve(cx: &mut DrawContext, canvas: &mut Canvas, analyzer_data
         // This does a way better job at cutting off the tops and bottoms of the graph than we could do
         // by hand
         canvas.scissor(bounds.x, bounds.y, bounds.w, bounds.h);
+        canvas.stroke_path(&path, &glow);
         canvas.stroke_path(&path, &paint);
         canvas.reset_scissor();
     };
 
     let (upwards_offset_db, downwards_offset_db) = analyzer_data.curve_offsets_db;
-    draw_with_offset(upwards_offset_db, upwards_paint);
-    draw_with_offset(downwards_offset_db, downwards_paint);
+    draw_with_offset(upwards_offset_db, upwards_glow, upwards_paint);
+    draw_with_offset(downwards_offset_db, downwards_glow, downwards_paint);
     draw_curve_points(cx, canvas, analyzer_data, &curve);
 }
 
@@ -687,12 +725,11 @@ fn draw_curve_points(
     curve: &Curve,
 ) {
     let bounds = cx.bounds();
-    let radius = cx.scale_factor() * 4.5;
-    let stroke_width = cx.scale_factor() * 1.5;
+    let radius = cx.scale_factor() * 3.5;
+    let halo_radius = cx.scale_factor() * 8.0;
     let display_offset_db = editable_curve_display_offset_db(analyzer_data);
     let fill_paint = vg::Paint::color(theme::ANALYZER_THRESHOLD_POINT_FILL);
-    let stroke_paint =
-        vg::Paint::color(theme::ANALYZER_THRESHOLD_POINT_STROKE).with_line_width(stroke_width);
+    let halo_paint = vg::Paint::color(theme::ANALYZER_THRESHOLD_POINT_HALO);
 
     canvas.scissor(bounds.x, bounds.y, bounds.w, bounds.h);
     for point in &analyzer_data.curve_params.points {
@@ -700,10 +737,12 @@ fn draw_curve_points(
             continue;
         };
 
+        let mut halo = vg::Path::new();
+        halo.circle(x, y, halo_radius);
+        canvas.fill_path(&halo, &halo_paint);
         let mut path = vg::Path::new();
         path.circle(x, y, radius);
         canvas.fill_path(&path, &fill_paint);
-        canvas.stroke_path(&path, &stroke_paint);
     }
     canvas.reset_scissor();
 }

@@ -20,20 +20,29 @@
 
 use nih_plug_vizia::vizia::vg;
 
-// Analyzer background and spectrum.
-pub const ANALYZER_BACKGROUND: vg::Color = vg::Color::rgbaf(0.137, 0.137, 0.137, 1.0);
-pub const ANALYZER_SPECTRUM_BARS: vg::Color = vg::Color::rgbaf(0.75, 0.75, 0.75, 0.85);
-pub const ANALYZER_SPECTRUM_MESH_LIGHT: vg::Color = vg::Color::rgbaf(0.82, 0.82, 0.82, 0.90);
-pub const ANALYZER_SPECTRUM_MESH_DARK: vg::Color = vg::Color::rgbaf(0.75, 0.75, 0.75, 0.85);
-pub const ANALYZER_FREQUENCY_GUIDE_LINE: vg::Color = vg::Color::rgbaf(0.96, 0.96, 0.96, 0.16);
-pub const ANALYZER_FREQUENCY_GUIDE_LABEL: vg::Color = vg::Color::rgbaf(0.96, 0.96, 0.96, 0.55);
+// Moonpull: a night sea. Analyzer background and spectrum.
+pub const ANALYZER_BACKGROUND: vg::Color = vg::Color::rgbaf(0.031, 0.035, 0.078, 1.0);
+pub const ANALYZER_BORDER: vg::Color = vg::Color::rgbaf(0.114, 0.129, 0.251, 1.0);
+pub const ANALYZER_SPECTRUM_TOP: vg::Color = vg::Color::rgbaf(0.875, 0.902, 1.0, 0.85);
+pub const ANALYZER_SPECTRUM_BOTTOM: vg::Color = vg::Color::rgbaf(0.875, 0.902, 1.0, 0.05);
+pub const ANALYZER_FREQUENCY_GUIDE_LINE: vg::Color = vg::Color::rgbaf(0.62, 0.65, 0.78, 0.10);
+pub const ANALYZER_FREQUENCY_GUIDE_LABEL: vg::Color = vg::Color::rgbaf(0.43, 0.46, 0.63, 1.0);
 
-// Gain reduction overlays: yellow for downwards, blue for upwards.
-pub const ANALYZER_GR_DOWNWARDS: vg::Color = vg::Color::rgbaf(0.902, 0.698, 0.227, 0.65);
-pub const ANALYZER_GR_UPWARDS: vg::Color = vg::Color::rgbaf(0.416, 0.784, 0.847, 0.65);
+// The moon sits behind the analyzer at the threshold's centre frequency.
+pub const ANALYZER_MOON_GLOW_INNER: vg::Color = vg::Color::rgbaf(0.79, 0.85, 1.0, 0.20);
+pub const ANALYZER_MOON_GLOW_MID: vg::Color = vg::Color::rgbaf(0.50, 0.58, 0.84, 0.07);
+pub const ANALYZER_MOON_GLOW_OUTER: vg::Color = vg::Color::rgbaf(0.031, 0.035, 0.078, 0.0);
+pub const ANALYZER_MOON_RING: vg::Color = vg::Color::rgbaf(0.79, 0.85, 1.0, 0.14);
 
-// Threshold curves matching the overlay colors above.
-pub const ANALYZER_THRESHOLD_DOWNWARDS: vg::Color = vg::Color::rgbaf(0.902, 0.698, 0.227, 0.9);
-pub const ANALYZER_THRESHOLD_UPWARDS: vg::Color = vg::Color::rgbaf(0.416, 0.784, 0.847, 0.9);
-pub const ANALYZER_THRESHOLD_POINT_FILL: vg::Color = vg::Color::rgbaf(0.137, 0.137, 0.137, 1.0);
-pub const ANALYZER_THRESHOLD_POINT_STROKE: vg::Color = vg::Color::rgbaf(0.96, 0.96, 0.96, 0.95);
+// Gain reduction overlays: lantern amber for downwards (ebb), moonlight blue for upwards (flood).
+pub const ANALYZER_GR_DOWNWARDS: vg::Color = vg::Color::rgbaf(0.949, 0.702, 0.369, 0.30);
+pub const ANALYZER_GR_UPWARDS: vg::Color = vg::Color::rgbaf(0.624, 0.769, 1.0, 0.30);
+
+// Threshold curves: a bright core over a soft glow in the overlay colors.
+pub const ANALYZER_THRESHOLD_DOWNWARDS: vg::Color = vg::Color::rgbaf(1.0, 0.835, 0.604, 1.0);
+pub const ANALYZER_THRESHOLD_UPWARDS: vg::Color = vg::Color::rgbaf(0.812, 0.878, 1.0, 1.0);
+pub const ANALYZER_THRESHOLD_DOWNWARDS_GLOW: vg::Color =
+    vg::Color::rgbaf(0.949, 0.702, 0.369, 0.22);
+pub const ANALYZER_THRESHOLD_UPWARDS_GLOW: vg::Color = vg::Color::rgbaf(0.624, 0.769, 1.0, 0.22);
+pub const ANALYZER_THRESHOLD_POINT_FILL: vg::Color = vg::Color::rgbaf(0.906, 0.918, 1.0, 1.0);
+pub const ANALYZER_THRESHOLD_POINT_HALO: vg::Color = vg::Color::rgbaf(0.906, 0.918, 1.0, 0.22);

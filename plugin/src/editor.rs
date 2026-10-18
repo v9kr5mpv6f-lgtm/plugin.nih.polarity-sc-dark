@@ -597,6 +597,10 @@ pub(crate) fn create(editor_state: Arc<ViziaState>, editor_data: Data) -> Option
         move |cx, gui_context| {
             assets::register_noto_sans_light(cx);
             assets::register_noto_sans_thin(cx);
+            // Moonpull's type: Sora for labels and titles, DM Mono for readouts (both SIL OFL).
+            cx.add_font_mem(include_bytes!("../assets/fonts/Sora-Light.ttf"));
+            cx.add_font_mem(include_bytes!("../assets/fonts/DMMono-Light.ttf"));
+            cx.add_font_mem(include_bytes!("../assets/fonts/DMMono-Regular.ttf"));
 
             // In hot-reload mode the CSS is read from disk so you can tweak it without
             // recompiling.
@@ -702,11 +706,11 @@ fn header_bar(cx: &mut Context) {
 /// First content row with global controls and threshold controls.
 fn global_and_threshold_row(cx: &mut Context) {
     HStack::new(cx, |cx| {
-        make_column(cx, "Globals", None, |cx| {
+        make_column(cx, "Globals", None, None, |cx| {
             global_column(cx);
         });
 
-        make_column(cx, "Threshold", None, |cx| {
+        make_column(cx, "Threshold", None, None, |cx| {
             threshold_column(cx);
         });
     })
@@ -868,7 +872,7 @@ fn compressor_columns(cx: &mut Context) {
 
 /// Renders controls for the upwards compressor bank.
 fn upwards_column(cx: &mut Context) {
-    make_column(cx, "Upwards", Some("upwards-col"), |cx| {
+    make_column(cx, "Upwards", Some("flood"), Some("upwards-col"), |cx| {
         let upwards_compressor_params = Data::params.map(|p| p.compressors.upwards.clone());
         GenericUi::new_custom(cx, upwards_compressor_params, |cx, param_ptr| {
             HStack::new(cx, |cx| {
@@ -889,7 +893,7 @@ fn upwards_column(cx: &mut Context) {
 
 /// Renders controls for the downwards compressor bank.
 fn downwards_column(cx: &mut Context) {
-    make_column(cx, "Downwards", Some("downwards-col"), |cx| {
+    make_column(cx, "Downwards", Some("ebb"), Some("downwards-col"), |cx| {
         let downwards_compressor_params = Data::params.map(|p| p.compressors.downwards.clone());
         GenericUi::new_custom(cx, downwards_compressor_params, |cx, param_ptr| {
             HStack::new(cx, |cx| {
@@ -987,15 +991,29 @@ fn mode_picklist(cx: &mut Context) {
     });
 }
 
-/// Utility helper to render a titled editor column with optional CSS class.
+/// Utility helper to render a titled editor column with an optional small tag beside the title
+/// and an optional CSS class.
 fn make_column(
     cx: &mut Context,
     title: &str,
+    tag: Option<&str>,
     css_class: Option<&str>,
     contents: impl FnOnce(&mut Context),
 ) {
     let col = VStack::new(cx, |cx| {
-        Label::new(cx, title).class("column-title");
+        match tag {
+            Some(tag) => {
+                HStack::new(cx, |cx| {
+                    Label::new(cx, tag).class("column-tag");
+                    Label::new(cx, title).class("column-title");
+                })
+                .height(Auto)
+                .left(Stretch(1.0));
+            }
+            None => {
+                Label::new(cx, title).class("column-title");
+            }
+        }
 
         contents(cx);
     })

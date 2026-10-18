@@ -35,10 +35,7 @@ pub fn export_status_text(result: &Result<Option<PathBuf>, String>) -> String {
 /// The suggested file name. The exported IR is centred, so its peak is `window_size` samples in;
 /// putting that in the name saves the user from having to find it when aligning the IR.
 fn default_file_name(snapshot: &FrozenIrData) -> String {
-    format!(
-        "slackwater-freeze-ir-peak-{}smp.wav",
-        snapshot.window_size
-    )
+    format!("slackwater-freeze-ir-peak-{}smp.wav", snapshot.window_size)
 }
 
 /// Exports the current frozen compressor snapshot as a WAV IR file.
