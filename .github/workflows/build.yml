@@ -103,6 +103,11 @@ jobs:
         if: startsWith(matrix.os, 'ubuntu')
         run: cargo +stable test -p slackwater --lib
 
+      # The Help button embeds docs/MANUAL.html, so it must be what docs/MANUAL.md produces.
+      - name: Manual is up to date
+        if: startsWith(matrix.os, 'ubuntu')
+        run: python3 docs/gen_manual.py --check
+
       # --no-deps: the vendored nih_plug crates are workspace members and carry warnings of their
       # own. Only the plugin crate is held to -D warnings.
       - name: Clippy

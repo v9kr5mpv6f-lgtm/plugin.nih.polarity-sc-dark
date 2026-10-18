@@ -40,8 +40,7 @@ convolver. If the export fails, the reason is shown in the status label at the t
 | `framework/nih_plug_xtask/` | Vendored bundling/tooling library |
 | `framework/xtask/` | `cargo xtask` entry point |
 | `framework/cargo_nih_plug/` | Optional `cargo nih-plug` wrapper |
-| `docs/` | Project-specific technical notes |
-| `docs/user-feedback` | Feature Requests and Reports by users. Each user a markdown file |
+| `docs/MANUAL.md` | The user manual (source). `python3 docs/gen_manual.py` turns it into `docs/MANUAL.html`, which is embedded in the plug-in and opened by its **Help** button |
 
 
 ## Build
