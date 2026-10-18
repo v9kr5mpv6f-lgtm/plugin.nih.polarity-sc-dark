@@ -53,7 +53,7 @@ const MAX_OVERLAP_ORDER: usize = 5;
 /// automation and from Match's one-shot jump, short enough to feel immediate.
 const OUTPUT_GAIN_SMOOTHING_MS: f32 = 20.0;
 
-const VST3_CLASS_ID_BYTES: [u8; 16] = *b"Polarity-SC-Dark";
+const VST3_CLASS_ID_BYTES: [u8; 16] = *b"OsklSlackwater01";
 
 /// This is a port of <https://github.com/robbert-vdh/spectral-compressor/>.
 pub struct SpectralCompressor {
@@ -322,10 +322,10 @@ impl SpectralCompressorParams {
 }
 
 impl Plugin for SpectralCompressor {
-    const NAME: &'static str = "Polarity-SC-Dark";
-    const VENDOR: &'static str = "Polarity-Music";
+    const NAME: &'static str = "Slackwater";
+    const VENDOR: &'static str = "Oskillator";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
-    const EMAIL: &'static str = "hey@polarity.productions";
+    const EMAIL: &'static str = "";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
     const AUDIO_IO_LAYOUTS: &'static [AudioIOLayout] = &[
@@ -929,7 +929,7 @@ fn process_stft_sidechain(
 }
 
 impl ClapPlugin for SpectralCompressor {
-    const CLAP_ID: &'static str = "de.polarity-music.polarity-sc-dark";
+    const CLAP_ID: &'static str = "com.oskillator.slackwater";
     const CLAP_DESCRIPTION: Option<&'static str> =
         Some("Turn things into pink noise on demand and more.");
     const CLAP_MANUAL_URL: Option<&'static str> = Some(Self::URL);
@@ -941,7 +941,6 @@ impl ClapPlugin for SpectralCompressor {
         ClapFeature::PhaseVocoder,
         ClapFeature::Compressor,
         ClapFeature::Custom("nih:spectral"),
-        ClapFeature::Custom("nih:sosig"),
     ];
 }
 

@@ -1,6 +1,6 @@
 use nih_plug::prelude::*;
 
-use polarity_sc_dark::SpectralCompressor;
+use slackwater::SpectralCompressor;
 
 fn main() {
     // The deeply nested GUI widget tree can overflow the default stack size in

@@ -101,13 +101,13 @@ jobs:
 
       - name: Run tests
         if: startsWith(matrix.os, 'ubuntu')
-        run: cargo +stable test -p polarity_sc_dark --lib
+        run: cargo +stable test -p slackwater --lib
 
       # --no-deps: the vendored nih_plug crates are workspace members and carry warnings of their
       # own. Only the plugin crate is held to -D warnings.
       - name: Clippy
         if: startsWith(matrix.os, 'ubuntu')
-        run: cargo +stable clippy -p polarity_sc_dark --all-targets --no-deps -- -D warnings
+        run: cargo +stable clippy -p slackwater --all-targets --no-deps -- -D warnings
 
       - name: Clean previous plugin bundles
         run: rm -rf target/bundled
@@ -134,7 +134,7 @@ jobs:
 
       - name: Determine archive name
         run: |
-          echo "ARCHIVE_NAME=polarity-sc-dark-$(date -u +"%Y-%m-%d-%H%M%S")-${{ matrix.name }}" >> "$GITHUB_ENV"
+          echo "ARCHIVE_NAME=slackwater-$(date -u +"%Y-%m-%d-%H%M%S")-${{ matrix.name }}" >> "$GITHUB_ENV"
 
       - name: Stage packaged plugin artifacts
         run: |

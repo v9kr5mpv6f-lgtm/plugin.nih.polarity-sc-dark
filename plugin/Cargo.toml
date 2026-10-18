@@ -1,16 +1,20 @@
 [package]
-name = "polarity_sc_dark"
-version = "0.5.4"
+name = "slackwater"
+version = "0.6.0"
 edition = "2021"
-authors = ["Robbert van der Helm <mail@robbertvanderhelm.nl>", "Robert Polarity Agthe <hey@polarity.productions>"]
+authors = [
+  "Robbert van der Helm <mail@robbertvanderhelm.nl>",
+  "Robert Polarity Agthe <hey@polarity.productions>",
+  "Oskillator",
+]
 license = "GPL-3.0-or-later"
-homepage = "https://polarity.productions/polarity-sc/"
+homepage = "https://github.com/v9kr5mpv6f-lgtm/plugin.nih.polarity-sc-dark"
 
 [lib]
 crate-type = ["lib", "cdylib"]
 
 [[bin]]
-name = "polarity_sc_dark_standalone"
+name = "slackwater_standalone"
 path = "src/main.rs"
 
 [dependencies]

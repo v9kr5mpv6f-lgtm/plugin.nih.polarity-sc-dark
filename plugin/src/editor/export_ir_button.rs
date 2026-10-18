@@ -36,7 +36,7 @@ pub fn export_status_text(result: &Result<Option<PathBuf>, String>) -> String {
 /// putting that in the name saves the user from having to find it when aligning the IR.
 fn default_file_name(snapshot: &FrozenIrData) -> String {
     format!(
-        "polarity-sc-dark-freeze-ir-peak-{}smp.wav",
+        "slackwater-freeze-ir-peak-{}smp.wav",
         snapshot.window_size
     )
 }
@@ -166,7 +166,7 @@ mod tests {
     fn default_file_name_carries_the_peak_offset() {
         assert_eq!(
             default_file_name(&snapshot(2048)),
-            "polarity-sc-dark-freeze-ir-peak-2048smp.wav"
+            "slackwater-freeze-ir-peak-2048smp.wav"
         );
     }
 }

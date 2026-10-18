@@ -3166,26 +3166,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "polarity_sc_dark"
-version = "0.5.4"
-dependencies = [
- "assert_no_alloc",
- "atomic_float",
- "atomic_refcell",
- "crossbeam",
- "directories",
- "hound",
- "nih_plug",
- "nih_plug_vizia",
- "open",
- "realfft",
- "rfd",
- "serde",
- "serde_json",
- "triple_buffer",
-]
-
-[[package]]
 name = "polling"
 version = "2.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3902,6 +3882,26 @@ name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
+
+[[package]]
+name = "slackwater"
+version = "0.6.0"
+dependencies = [
+ "assert_no_alloc",
+ "atomic_float",
+ "atomic_refcell",
+ "crossbeam",
+ "directories",
+ "hound",
+ "nih_plug",
+ "nih_plug_vizia",
+ "open",
+ "realfft",
+ "rfd",
+ "serde",
+ "serde_json",
+ "triple_buffer",
+]
 
 [[package]]
 name = "slotmap"
