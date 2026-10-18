@@ -1181,14 +1181,16 @@ impl CompressorBank {
                 threshold.curve_slope.value()
             }
         };
-        if let Some(result) = self.match_curve_meter.advance_and_finish(
-            hop_frames,
-            &self.ln_freqs,
-            params.compressors.downwards.threshold_offset_db.value(),
-            threshold.center_frequency.value(),
-            fixed_slope,
-        ) {
-            self.match_curve_runtime.publish_result(result);
+        if self.match_curve_meter.advance_and_finish(hop_frames) {
+            // Only the raw numbers cross over; the curve fit allocates, so the editor runs it.
+            self.match_curve_runtime.publish_measurement(
+                self.match_curve_meter.magnitude_sums(),
+                &self.ln_freqs,
+                self.match_curve_meter.spectrum_count(),
+                params.compressors.downwards.threshold_offset_db.value(),
+                threshold.center_frequency.value(),
+                fixed_slope,
+            );
         }
     }
 

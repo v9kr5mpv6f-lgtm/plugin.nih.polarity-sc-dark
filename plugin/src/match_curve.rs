@@ -1,6 +1,6 @@
-use atomic_float::AtomicF32;
+use atomic_refcell::AtomicRefCell;
 use nih_plug::prelude::util;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use crate::curve::{
     CurvePoint, MAX_THRESHOLD_CURVE_POINTS, THRESHOLD_CURVE_MAX_FREQUENCY_HZ,
@@ -52,28 +52,58 @@ pub(crate) enum MatchCurveResult {
     Failed,
 }
 
+/// The raw numbers the audio thread hands to the editor when a measurement window ends. The curve
+/// fit itself allocates and sorts, so it runs in the editor (see
+/// [`MatchCurveRuntime::take_finished_result()`]), never on the audio thread.
+struct MatchCurveMeasurement {
+    ln_freqs: Vec<f32>,
+    magnitude_sums: Vec<f64>,
+    spectrum_count: u64,
+    downwards_offset_db: f32,
+    fixed_center_frequency: f32,
+    fixed_slope: f32,
+}
+
+impl MatchCurveMeasurement {
+    /// Both vectors are sized for the largest window, so filling them later never allocates.
+    fn with_capacity(max_num_bins: usize) -> Self {
+        Self {
+            ln_freqs: Vec::with_capacity(max_num_bins),
+            magnitude_sums: Vec::with_capacity(max_num_bins),
+            spectrum_count: 0,
+            downwards_offset_db: 0.0,
+            fixed_center_frequency: 1_000.0,
+            fixed_slope: 0.0,
+        }
+    }
+
+    fn fit(&self) -> Option<MatchCurveFit> {
+        fit_average_curve_constrained(
+            &self.ln_freqs,
+            &self.magnitude_sums,
+            self.spectrum_count,
+            self.downwards_offset_db,
+            self.fixed_center_frequency,
+            self.fixed_slope,
+        )
+    }
+}
+
 pub(crate) struct MatchCurveRuntime {
     state: AtomicU8,
-    intercept: AtomicF32,
-    center_frequency: AtomicF32,
-    slope: AtomicF32,
-    curve: AtomicF32,
-    point_enabled: [AtomicBool; MAX_THRESHOLD_CURVE_POINTS],
-    point_frequency: [AtomicF32; MAX_THRESHOLD_CURVE_POINTS],
-    point_offset_db: [AtomicF32; MAX_THRESHOLD_CURVE_POINTS],
+    /// An `AtomicRefCell` rather than a `Mutex`: borrowing it is a single atomic operation with no
+    /// OS primitive behind it. The first lock of a `std::sync::Mutex` allocates on some platforms
+    /// (macOS boxes a pthread mutex), which is exactly what the audio thread must not do.
+    measurement: AtomicRefCell<MatchCurveMeasurement>,
 }
 
 impl MatchCurveRuntime {
     pub(crate) fn new() -> Self {
         Self {
             state: AtomicU8::new(MatchCurveState::Idle as u8),
-            intercept: AtomicF32::new(0.0),
-            center_frequency: AtomicF32::new(1_000.0),
-            slope: AtomicF32::new(0.0),
-            curve: AtomicF32::new(0.0),
-            point_enabled: std::array::from_fn(|_| AtomicBool::new(false)),
-            point_frequency: std::array::from_fn(|_| AtomicF32::new(1_000.0)),
-            point_offset_db: std::array::from_fn(|_| AtomicF32::new(0.0)),
+            measurement: AtomicRefCell::new(MatchCurveMeasurement::with_capacity(
+                crate::MAX_WINDOW_SIZE / 2 + 1,
+            )),
         }
     }
 
@@ -93,29 +123,40 @@ impl MatchCurveRuntime {
             .is_ok()
     }
 
-    pub(crate) fn publish_result(&self, result: Option<MatchCurveFit>) {
-        match result {
-            Some(fit) => {
-                self.intercept.store(fit.intercept, Ordering::Release);
-                self.center_frequency
-                    .store(fit.center_frequency, Ordering::Release);
-                self.slope.store(fit.slope, Ordering::Release);
-                self.curve.store(fit.curve, Ordering::Release);
-                for (index, point) in fit.points.iter().enumerate() {
-                    self.point_frequency[index].store(point.frequency, Ordering::Release);
-                    self.point_offset_db[index].store(point.offset_db, Ordering::Release);
-                    self.point_enabled[index].store(point.enabled, Ordering::Release);
-                }
-                self.state
-                    .store(MatchCurveState::Ready as u8, Ordering::Release);
-            }
-            None => {
-                self.state
-                    .store(MatchCurveState::Failed as u8, Ordering::Release);
-            }
-        }
+    /// Hands the finished measurement to the editor. Called from the audio thread, so this neither
+    /// allocates (the buffers are already sized for the largest window) nor blocks: if the editor
+    /// somehow still holds the measurement the match is reported as failed rather than waited for.
+    pub(crate) fn publish_measurement(
+        &self,
+        magnitude_sums: &[f64],
+        ln_freqs: &[f32],
+        spectrum_count: u64,
+        downwards_offset_db: f32,
+        fixed_center_frequency: f32,
+        fixed_slope: f32,
+    ) {
+        let Ok(mut measurement) = self.measurement.try_borrow_mut() else {
+            self.state
+                .store(MatchCurveState::Failed as u8, Ordering::Release);
+            return;
+        };
+
+        measurement.ln_freqs.clear();
+        measurement.ln_freqs.extend_from_slice(ln_freqs);
+        measurement.magnitude_sums.clear();
+        measurement.magnitude_sums.extend_from_slice(magnitude_sums);
+        measurement.spectrum_count = spectrum_count;
+        measurement.downwards_offset_db = downwards_offset_db;
+        measurement.fixed_center_frequency = fixed_center_frequency;
+        measurement.fixed_slope = fixed_slope;
+        drop(measurement);
+
+        self.state
+            .store(MatchCurveState::Ready as u8, Ordering::Release);
     }
 
+    /// Consumes a finished measurement on the editor side and fits the curve to it. Returns `None`
+    /// while nothing is ready.
     pub(crate) fn take_finished_result(&self) -> Option<MatchCurveResult> {
         let state = self.state.load(Ordering::Acquire);
         match state {
@@ -128,12 +169,22 @@ impl MatchCurveRuntime {
                         Ordering::AcqRel,
                         Ordering::Acquire,
                     )
-                    .is_ok()
+                    .is_err()
                 {
-                    Some(MatchCurveResult::Matched(self.load_fit()))
-                } else {
-                    None
+                    return None;
                 }
+
+                // A new measurement needs five seconds of audio, so nothing can overwrite this
+                // while the fit runs.
+                let fit = self
+                    .measurement
+                    .try_borrow()
+                    .ok()
+                    .and_then(|measurement| measurement.fit());
+                Some(match fit {
+                    Some(fit) => MatchCurveResult::Matched(fit),
+                    None => MatchCurveResult::Failed,
+                })
             }
             value if value == MatchCurveState::Failed as u8 => self
                 .state
@@ -146,20 +197,6 @@ impl MatchCurveRuntime {
                 .ok()
                 .map(|_| MatchCurveResult::Failed),
             _ => None,
-        }
-    }
-
-    fn load_fit(&self) -> MatchCurveFit {
-        MatchCurveFit {
-            intercept: self.intercept.load(Ordering::Acquire),
-            center_frequency: self.center_frequency.load(Ordering::Acquire),
-            slope: self.slope.load(Ordering::Acquire),
-            curve: self.curve.load(Ordering::Acquire),
-            points: std::array::from_fn(|index| CurvePoint {
-                enabled: self.point_enabled[index].load(Ordering::Acquire),
-                frequency: self.point_frequency[index].load(Ordering::Acquire),
-                offset_db: self.point_offset_db[index].load(Ordering::Acquire),
-            }),
         }
     }
 }
@@ -214,32 +251,27 @@ impl MatchCurveMeter {
         self.spectrum_count += 1;
     }
 
-    pub(crate) fn advance_and_finish(
-        &mut self,
-        frames: usize,
-        ln_freqs: &[f32],
-        downwards_offset_db: f32,
-        fixed_center_frequency: f32,
-        fixed_slope: f32,
-    ) -> Option<Option<MatchCurveFit>> {
+    /// Advances the measurement window by `frames` and returns `true` the one time it completes.
+    pub(crate) fn advance_and_finish(&mut self, frames: usize) -> bool {
         if frames == 0 || !self.is_active() {
-            return None;
+            return false;
         }
 
         self.measured_frames = (self.measured_frames + frames as u64).min(self.target_frames);
         if self.measured_frames < self.target_frames {
-            return None;
+            return false;
         }
 
         self.target_frames = 0;
-        Some(fit_average_curve_constrained(
-            ln_freqs,
-            &self.magnitude_sums,
-            self.spectrum_count,
-            downwards_offset_db,
-            fixed_center_frequency,
-            fixed_slope,
-        ))
+        true
+    }
+
+    pub(crate) fn magnitude_sums(&self) -> &[f64] {
+        &self.magnitude_sums
+    }
+
+    pub(crate) fn spectrum_count(&self) -> u64 {
+        self.spectrum_count
     }
 }
 
@@ -699,20 +731,69 @@ mod tests {
     #[test]
     fn accumulator_collects_duration_and_averages_channels() {
         let ln_freqs = ln_freqs_for_bins(64);
+        let runtime = MatchCurveRuntime::new();
         let mut meter = MatchCurveMeter::new(64);
         meter.start(10.0);
         meter.measure_magnitudes([1.0; 64]);
-        assert!(meter
-            .advance_and_finish(4, &ln_freqs, 0.0, 1_000.0, 0.0)
-            .is_none());
+        assert!(!meter.advance_and_finish(4));
 
         meter.measure_magnitudes([3.0; 64]);
-        let fit = meter
-            .advance_and_finish(46, &ln_freqs, 0.0, 1_000.0, 0.0)
-            .unwrap()
-            .unwrap();
+        assert!(meter.advance_and_finish(46));
+        assert!(!meter.advance_and_finish(1), "must finish only once");
+
+        runtime.publish_measurement(
+            meter.magnitude_sums(),
+            &ln_freqs,
+            meter.spectrum_count(),
+            0.0,
+            1_000.0,
+            0.0,
+        );
+        let Some(MatchCurveResult::Matched(fit)) = runtime.take_finished_result() else {
+            panic!("expected a matched curve");
+        };
         let expected_db = util::gain_to_db(2.0);
 
         assert!((fit.intercept - expected_db).abs() < 1.0e-3);
+        assert!(
+            runtime.take_finished_result().is_none(),
+            "result is taken once"
+        );
+    }
+
+    #[test]
+    fn silent_measurement_fails_on_the_editor_side() {
+        let ln_freqs = ln_freqs_for_bins(64);
+        let runtime = MatchCurveRuntime::new();
+        let silence = vec![0.0f64; 64];
+
+        runtime.publish_measurement(&silence, &ln_freqs, 16, 0.0, 1_000.0, 0.0);
+
+        assert!(matches!(
+            runtime.take_finished_result(),
+            Some(MatchCurveResult::Failed)
+        ));
+    }
+
+    #[test]
+    fn publishing_a_finished_measurement_does_not_allocate() {
+        // The fit allocates and sorts, so it must not run where this does: the audio thread. Build
+        // everything first, then fail the test (the allocator aborts) if publishing allocates.
+        let num_bins = crate::MAX_WINDOW_SIZE / 2 + 1;
+        let ln_freqs: Vec<f32> = (0..num_bins).map(|bin| (bin as f32 + 1.0).ln()).collect();
+        let sums = vec![1.0f64; num_bins];
+        let runtime = MatchCurveRuntime::new();
+        let mut meter = MatchCurveMeter::new(num_bins);
+        meter.start(10.0);
+
+        assert_no_alloc::assert_no_alloc(|| {
+            assert!(meter.advance_and_finish(50));
+            runtime.publish_measurement(&sums, &ln_freqs, 1, 0.0, 1_000.0, 0.0);
+        });
+
+        assert!(matches!(
+            runtime.take_finished_result(),
+            Some(MatchCurveResult::Matched(_))
+        ));
     }
 }

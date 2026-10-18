@@ -34,3 +34,8 @@ triple_buffer = "6.2"
 [features]
 # Read theme.css from disk at runtime and reload it while the editor is open.
 hot-reload = []
+
+[dev-dependencies]
+# Lets tests assert that audio-thread code paths do not allocate. Same source as nih_plug's own
+# optional copy, so there is still a single version in the build.
+assert_no_alloc = { git = "https://github.com/robbert-vdh/rust-assert-no-alloc.git", branch = "feature/nested-permit-forbid" }
