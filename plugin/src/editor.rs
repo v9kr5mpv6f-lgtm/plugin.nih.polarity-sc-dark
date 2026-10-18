@@ -349,6 +349,17 @@ impl Model for ExportUiModel {
             },
         );
 
+        event.map(
+            |export_event: &export_ir_button::ExportIrEvent, _meta| match export_event {
+                export_ir_button::ExportIrEvent::Started => {
+                    self.status_text = String::from("Choose IR file...");
+                }
+                export_ir_button::ExportIrEvent::Finished(result) => {
+                    self.status_text = export_ir_button::export_status_text(result);
+                }
+            },
+        );
+
         // Keep export state in sync when parameters are changed from the UI/host.
         event.map(|_param_event: &RawParamEvent, _meta| {
             self.refresh_export_availability();

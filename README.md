@@ -16,6 +16,15 @@ Freeze and IR export remain part of the compressor workflow.
 
 ![Screenshot](Polarity-SC-Dark.png)
 
+## Exporting the frozen curve as an impulse response
+
+With Freeze engaged, **Export IR...** renders the frozen per-bin gain curve as a 32-bit float WAV
+(one channel per input channel). The impulse response is centred: its main peak sits in the middle
+of the file, with the pre-ringing before it and the tail after it. The suggested file name says how
+many samples in the peak is (for example `polarity-sc-dark-freeze-ir-peak-2048smp.wav`), and
+convolving with the file delays your signal by that many samples, so compensate for it in your
+convolver. If the export fails, the reason is shown in the status label at the top of the editor.
+
 ## Repository Layout
 
 | Path | Purpose |
