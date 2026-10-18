@@ -49,6 +49,10 @@ const MIN_OVERLAP_ORDER: usize = 2;
 const DEFAULT_OVERLAP_ORDER: usize = 4;
 const MAX_OVERLAP_ORDER: usize = 5;
 
+/// How long the output gain takes to glide to a new value. Long enough to hide the step from
+/// automation and from Match's one-shot jump, short enough to feel immediate.
+const OUTPUT_GAIN_SMOOTHING_MS: f32 = 20.0;
+
 const VST3_CLASS_ID_BYTES: [u8; 16] = *b"Polarity-SC-Dark";
 
 /// This is a port of <https://github.com/robbert-vdh/spectral-compressor/>.
@@ -225,8 +229,9 @@ impl Default for SpectralCompressor {
 impl Default for GlobalParams {
     fn default() -> Self {
         GlobalParams {
-            // We don't need any smoothing for these parameters as the overlap-add process will
-            // already act as a form of smoothing
+            // The output gain is applied in the time domain after the overlap-add stage, so unlike
+            // the spectral parameters nothing downstream smooths it. It gets its own smoother, and
+            // `apply_output_gain()` consumes it once per sample.
             output_gain: FloatParam::new(
                 "Output Gain",
                 util::db_to_gain(0.0),
@@ -236,6 +241,7 @@ impl Default for GlobalParams {
                     factor: FloatRange::gain_skew_factor(OUTPUT_GAIN_MIN_DB, OUTPUT_GAIN_MAX_DB),
                 },
             )
+            .with_smoother(SmoothingStyle::Logarithmic(OUTPUT_GAIN_SMOOTHING_MS))
             .with_unit(" dB")
             .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
             .with_string_to_value(formatters::s2v_f32_gain_to_db()),
@@ -435,7 +441,6 @@ impl Plugin for SpectralCompressor {
         // signal instead.
         let input_gain = gain_compensation.sqrt();
         let synthesis_gain = gain_compensation.sqrt();
-        let final_output_gain = self.params.global.output_gain.value();
 
         if self.match_runtime.begin_running_if_requested() {
             self.delta_active.store(false, Ordering::Relaxed);
@@ -538,7 +543,7 @@ impl Plugin for SpectralCompressor {
             }
 
             if !bypass_active || match_active {
-                apply_output_gain(buffer, final_output_gain);
+                apply_output_gain(buffer, &self.params.global.output_gain.smoothed);
             }
 
             if bypass_active && !match_active {
@@ -655,16 +660,30 @@ fn process_stft_main(
     }
 }
 
-/// Applies a linear gain to every output sample in `buffer`. Match writes its result straight into
-/// the Output Gain parameter, so the value is already in linear space by the time we get here.
-fn apply_output_gain(buffer: &mut Buffer, output_gain: f32) {
+/// Applies the smoothed linear output gain to every output sample in `buffer`. Match writes its
+/// result straight into the Output Gain parameter, so the value is already in linear space by the
+/// time we get here. The smoother is advanced exactly once per sample while it is gliding, so large
+/// jumps (automation, Match) ramp instead of stepping at a block boundary.
+fn apply_output_gain(buffer: &mut Buffer, output_gain: &Smoother<f32>) {
     const UNITY_GAIN_EPSILON: f32 = 1.0e-6;
-    if (output_gain - 1.0).abs() <= UNITY_GAIN_EPSILON {
+
+    if !output_gain.is_smoothing() {
+        let gain = output_gain.next();
+        if (gain - 1.0).abs() <= UNITY_GAIN_EPSILON {
+            return;
+        }
+
+        for channel in buffer.as_slice() {
+            channel.iter_mut().for_each(|sample| *sample *= gain);
+        }
         return;
     }
 
-    for channel in buffer.as_slice() {
-        channel.iter_mut().for_each(|sample| *sample *= output_gain);
+    for channel_samples in buffer.iter_samples() {
+        let gain = output_gain.next();
+        for sample in channel_samples {
+            *sample *= gain;
+        }
     }
 }
 
@@ -685,11 +704,52 @@ mod tests {
                 });
             }
 
-            apply_output_gain(&mut buffer, 2.0);
+            apply_output_gain(&mut buffer, &settled_gain(2.0));
         }
 
         assert_eq!(left, vec![2.0, -4.0]);
         assert_eq!(right, vec![1.0, -0.5]);
+    }
+
+    fn settled_gain(gain: f32) -> Smoother<f32> {
+        let smoother = Smoother::new(SmoothingStyle::None);
+        smoother.reset(gain);
+        smoother
+    }
+
+    #[test]
+    fn output_gain_jump_ramps_instead_of_stepping() {
+        let sample_rate = 48_000.0;
+        let smoother = Smoother::new(SmoothingStyle::Logarithmic(OUTPUT_GAIN_SMOOTHING_MS));
+        smoother.reset(1.0);
+        smoother.set_target(sample_rate, 2.0);
+
+        // A unity signal, so the output is the gain curve itself. Two blocks, to prove the ramp
+        // carries across a block boundary instead of restarting.
+        let mut out = Vec::new();
+        for _ in 0..2 {
+            let mut samples = vec![1.0f32; 480];
+            {
+                let mut buffer = Buffer::default();
+                unsafe {
+                    buffer.set_slices(480, |output_slices| {
+                        *output_slices = vec![samples.as_mut_slice()];
+                    });
+                }
+                apply_output_gain(&mut buffer, &smoother);
+            }
+            out.extend(samples);
+        }
+
+        assert!(out[0] < 1.01, "first sample jumped to {}", out[0]);
+        assert!((out[out.len() - 1] - 2.0).abs() < 1.0e-4);
+        let max_step = out.windows(2).map(|w| w[1] - w[0]).fold(0.0f32, f32::max);
+        assert!(max_step < 0.01, "largest per-sample step was {max_step}");
+        assert!(
+            out.windows(2).all(|w| w[1] >= w[0]),
+            "gain must rise monotonically"
+        );
+        assert!(!smoother.is_smoothing());
     }
 
     #[test]
@@ -723,7 +783,7 @@ mod tests {
                 });
             }
 
-            apply_output_gain(&mut buffer, gain);
+            apply_output_gain(&mut buffer, &settled_gain(gain));
             mixer.mix_in_dry(&mut buffer, ratio, 0);
         }
 
