@@ -430,7 +430,13 @@ impl Plugin for SpectralCompressor {
     ) -> ProcessStatus {
         // If the window size has changed since the last process call, reset the buffers and chance
         // our latency. All of these buffers already have enough capacity so this won't allocate.
-        let window_size = self.window_size();
+        //
+        // The window order is read from the parameter exactly ONCE per call. The editor or the host
+        // can change it at any moment, and the buffer sizes, the window function and the FFT plan
+        // below must all come from the same value: a second read between them can pick a plan whose
+        // length differs from the buffers, which panics on the audio thread.
+        let window_order = self.window_order();
+        let window_size = 1 << window_order;
         let overlap_times = self.overlap_times();
         if self.window_function.len() != window_size {
             self.resize_for_window(window_size);
@@ -474,8 +480,7 @@ impl Plugin for SpectralCompressor {
         if process_active {
             // These plans have already been made so we can switch between
             // versions without reallocating.
-            let fft_plan = &mut self.plan_for_order
-                [self.params.global.window_size_order.value() as usize - MIN_WINDOW_ORDER];
+            let fft_plan = &mut self.plan_for_order[window_order - MIN_WINDOW_ORDER];
             let num_bins = self.complex_fft_buffer.len();
             // The Hann window function spreads the DC signal out slightly, so we'll clear all
             // 0-20 Hz bins for this. With small window sizes you probably don't want this as it
@@ -578,8 +583,12 @@ impl Plugin for SpectralCompressor {
 }
 
 impl SpectralCompressor {
+    fn window_order(&self) -> usize {
+        self.params.global.window_size_order.value() as usize
+    }
+
     fn window_size(&self) -> usize {
-        1 << self.params.global.window_size_order.value() as usize
+        1 << self.window_order()
     }
 
     fn overlap_times(&self) -> usize {
@@ -778,6 +787,18 @@ mod tests {
             });
             assert!(loud_peak > 0.5, "the loud pass must produce output");
             assert_eq!(silent_peak, 0.0, "stale audio leaked after bypass");
+        });
+    }
+
+    #[test]
+    fn every_window_order_selects_a_plan_of_exactly_that_length() {
+        with_large_stack(|| {
+            let plugin = SpectralCompressor::default();
+            for order in MIN_WINDOW_ORDER..=MAX_WINDOW_ORDER {
+                let plan = &plugin.plan_for_order[order - MIN_WINDOW_ORDER];
+                assert_eq!(plan.r2c_plan.len(), 1 << order);
+                assert_eq!(plan.c2r_plan.len(), 1 << order);
+            }
         });
     }
 
