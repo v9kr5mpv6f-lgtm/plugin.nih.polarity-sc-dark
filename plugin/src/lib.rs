@@ -98,6 +98,10 @@ pub struct SpectralCompressor {
     /// When true the plugin outputs the delta signal (input - processed) so the user can hear
     /// what the compressor is adding or removing.
     delta_active: Arc<AtomicBool>,
+
+    /// Set while the STFT is not being fed (bypassed), so its ring buffers hold audio from before
+    /// the gap. Cleared by flushing them when processing resumes.
+    stft_stale: bool,
 }
 
 /// An FFT plan for a specific window size, all of which will be precomputed during initilaization.
@@ -222,6 +226,8 @@ impl Default for SpectralCompressor {
             frozen_ir_output_data: Arc::new(AtomicRefCell::new(frozen_ir_output_data)),
 
             delta_active: Arc::new(AtomicBool::new(false)),
+
+            stft_stale: false,
         }
     }
 }
@@ -409,6 +415,9 @@ impl Plugin for SpectralCompressor {
     }
 
     fn reset(&mut self) {
+        // The overlap-add ring buffers still hold the audio from before the stop. Without clearing
+        // them the first window of wet output after a transport start replays that old audio.
+        self.flush_stft(self.window_size());
         self.dry_wet_mixer.reset();
         self.compressor_bank.reset();
     }
@@ -459,6 +468,8 @@ impl Plugin for SpectralCompressor {
         let delta_active = self.delta_active.load(Ordering::Relaxed) && !match_active;
         let bypass_active = self.params.global.bypass.value();
         let process_active = delta_active || match_active || !bypass_active;
+
+        self.sync_stft_activity(process_active, window_size);
 
         if process_active {
             // These plans have already been made so we can switch between
@@ -573,6 +584,24 @@ impl SpectralCompressor {
 
     fn overlap_times(&self) -> usize {
         1 << self.params.global.overlap_times_order.value() as usize
+    }
+
+    /// Clear the STFT's input and output ring buffers so the next block starts from silence. This
+    /// does not allocate for any `window_size` up to `MAX_WINDOW_SIZE`.
+    fn flush_stft(&mut self, window_size: usize) {
+        self.stft.set_block_size(window_size);
+        self.stft_stale = false;
+    }
+
+    /// Tracks whether the STFT is being fed. It stops being fed while bypassed, so its buffers go
+    /// stale; flush them when processing resumes so the wet path fades in from silence instead of
+    /// ghosting the audio from before the bypass.
+    fn sync_stft_activity(&mut self, process_active: bool, window_size: usize) {
+        if !process_active {
+            self.stft_stale = true;
+        } else if self.stft_stale {
+            self.flush_stft(window_size);
+        }
     }
 
     /// `window_size` should not exceed `MAX_WINDOW_SIZE` or this will allocate.
@@ -690,6 +719,67 @@ fn apply_output_gain(buffer: &mut Buffer, output_gain: &Smoother<f32>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Run `samples` through the plugin's own STFT with an identity callback, in place.
+    fn run_stft(plugin: &mut SpectralCompressor, left: &mut [f32], right: &mut [f32]) {
+        let mut buffer = Buffer::default();
+        unsafe {
+            buffer.set_slices(left.len(), |output_slices| {
+                *output_slices = vec![&mut *left, &mut *right];
+            });
+        }
+        plugin.stft.process_overlap_add(&mut buffer, 4, |_, _| {});
+    }
+
+    fn with_large_stack(test: impl FnOnce() + Send + 'static) {
+        std::thread::Builder::new()
+            .stack_size(8 * 1024 * 1024)
+            .spawn(test)
+            .expect("failed to spawn test thread")
+            .join()
+            .expect("test thread panicked");
+    }
+
+    /// Feeds loud audio, applies `interrupt`, then feeds silence. Returns the peak of the output.
+    fn peak_after_interruption(interrupt: fn(&mut SpectralCompressor)) -> (f32, f32) {
+        let mut plugin = SpectralCompressor::default();
+        plugin.resize_for_window(256);
+
+        let (mut left, mut right) = (vec![1.0f32; 1024], vec![1.0f32; 1024]);
+        run_stft(&mut plugin, &mut left, &mut right);
+        let loud_peak = left.iter().fold(0.0f32, |peak, s| peak.max(s.abs()));
+
+        interrupt(&mut plugin);
+
+        let (mut left, mut right) = (vec![0.0f32; 1024], vec![0.0f32; 1024]);
+        run_stft(&mut plugin, &mut left, &mut right);
+        let silent_peak = left
+            .iter()
+            .chain(&right)
+            .fold(0.0f32, |peak, s| peak.max(s.abs()));
+        (loud_peak, silent_peak)
+    }
+
+    #[test]
+    fn reset_does_not_replay_audio_from_before_the_stop() {
+        with_large_stack(|| {
+            let (loud_peak, silent_peak) = peak_after_interruption(|plugin| plugin.reset());
+            assert!(loud_peak > 0.5, "the loud pass must produce output");
+            assert_eq!(silent_peak, 0.0, "stale audio leaked after reset()");
+        });
+    }
+
+    #[test]
+    fn leaving_bypass_does_not_replay_audio_from_before_the_bypass() {
+        with_large_stack(|| {
+            let (loud_peak, silent_peak) = peak_after_interruption(|plugin| {
+                plugin.sync_stft_activity(false, 256);
+                plugin.sync_stft_activity(true, 256);
+            });
+            assert!(loud_peak > 0.5, "the loud pass must produce output");
+            assert_eq!(silent_peak, 0.0, "stale audio leaked after bypass");
+        });
+    }
 
     #[test]
     fn output_gain_scales_channels() {
