@@ -444,3 +444,44 @@ tooltip {
 analyzer {
   border-radius: 10px;
 }
+
+/* Dropdowns: vizia draws a white outline and a larger default label; match the rest of Moonpull. */
+
+picklist {
+  border-width: 0px;
+  outline-width: 0px;
+}
+
+dropdown {
+  border-width: 1px;
+  border-color: #3a4170;
+  border-radius: 14px;
+  outline-width: 0px;
+}
+
+dropdown:hover {
+  border-color: #7c86c4;
+}
+
+dropdown .title {
+  border-width: 0px;
+  outline-width: 0px;
+}
+
+dropdown .title label {
+  font-size: 12;
+  color: #e7eaff;
+}
+
+dropdown .title .icon {
+  color: #6e76a0;
+}
+
+/* Icon glyphs (dropdown chevrons) live in vizia's own icon font; the label rule above must not
+   replace it or they render as missing-glyph boxes. */
+
+.icon,
+label.icon,
+dropdown .title .icon {
+  font-family: "tabler-icons";
+}
