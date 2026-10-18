@@ -14,6 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+// The vendored vst3 macros end an expression with a semicolon, which Rust 1.99 and later warn about
+// (and `clippy -D warnings` turns into an error). It is the framework's code, not ours to change
+// here, so the lint is allowed for the crate. `unknown_lints` keeps older toolchains, which do not
+// have this lint yet, quiet.
+#![allow(unknown_lints)]
+#![allow(semicolon_in_expressions_from_non_local_macros)]
+
 use analyzer::AnalyzerData;
 use atomic_float::AtomicF32;
 use atomic_refcell::AtomicRefCell;
