@@ -114,17 +114,25 @@ impl MatchCurveRuntime {
     /// Requests a new curve match, unless one is already in flight. Returns whether a run was
     /// started. See [`MatchRuntime::try_request()`][crate::match_level::MatchRuntime].
     pub(crate) fn try_request(&self) -> bool {
-        self.state
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |state| {
-                if state == MatchCurveState::Requested as u8
-                    || state == MatchCurveState::Running as u8
-                {
-                    None
-                } else {
-                    Some(MatchCurveState::Requested as u8)
-                }
-            })
-            .is_ok()
+        // A plain compare-exchange loop rather than `fetch_update`, which newer toolchains
+        // deprecate in favour of `try_update`.
+        let mut state = self.state.load(Ordering::Acquire);
+        loop {
+            if state == MatchCurveState::Requested as u8 || state == MatchCurveState::Running as u8
+            {
+                return false;
+            }
+
+            match self.state.compare_exchange(
+                state,
+                MatchCurveState::Requested as u8,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return true,
+                Err(actual) => state = actual,
+            }
+        }
     }
 
     /// Gives up on a run that produced no result in time so the next click can start a new one.

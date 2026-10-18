@@ -48,16 +48,24 @@ impl MatchRuntime {
     /// A finished result nobody collected (its editor went away) does not block a new request; it
     /// is discarded.
     pub(crate) fn try_request(&self) -> bool {
-        let started = self
-            .state
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |state| {
-                if state == MatchState::Requested as u8 || state == MatchState::Running as u8 {
-                    None
-                } else {
-                    Some(MatchState::Requested as u8)
-                }
-            })
-            .is_ok();
+        // A plain compare-exchange loop rather than `fetch_update`, which newer toolchains
+        // deprecate in favour of `try_update`.
+        let mut state = self.state.load(Ordering::Acquire);
+        let started = loop {
+            if state == MatchState::Requested as u8 || state == MatchState::Running as u8 {
+                break false;
+            }
+
+            match self.state.compare_exchange(
+                state,
+                MatchState::Requested as u8,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => break true,
+                Err(actual) => state = actual,
+            }
+        };
         if started {
             self.output_gain.store(1.0, Ordering::Release);
         }

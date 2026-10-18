@@ -91,18 +91,23 @@ jobs:
         with:
           # The universal macOS bundle is built from x86_64 and AArch64 artifacts.
           targets: ${{ matrix.cross-target }}
-          components: clippy
 
-      # The checks run on one platform; a failure stops this job before it packages anything.
+      # The checks run on stable, not on the floating nightly the bundles are built with: a new
+      # nightly lint must not be able to turn the gate red overnight. They run on one platform,
+      # and a failure stops this job before it packages anything.
+      - name: Install stable toolchain for the checks
+        if: startsWith(matrix.os, 'ubuntu')
+        run: rustup toolchain install stable --profile minimal --component clippy
+
       - name: Run tests
         if: startsWith(matrix.os, 'ubuntu')
-        run: cargo test -p polarity_sc_dark --lib
+        run: cargo +stable test -p polarity_sc_dark --lib
 
       # --no-deps: the vendored nih_plug crates are workspace members and carry warnings of their
       # own. Only the plugin crate is held to -D warnings.
       - name: Clippy
         if: startsWith(matrix.os, 'ubuntu')
-        run: cargo clippy -p polarity_sc_dark --all-targets --no-deps -- -D warnings
+        run: cargo +stable clippy -p polarity_sc_dark --all-targets --no-deps -- -D warnings
 
       - name: Clean previous plugin bundles
         run: rm -rf target/bundled
