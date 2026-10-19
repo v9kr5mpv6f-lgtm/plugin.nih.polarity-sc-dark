@@ -114,6 +114,19 @@ jobs:
         if: startsWith(matrix.os, 'ubuntu')
         run: cargo +stable clippy -p slackwater --all-targets --no-deps -- -D warnings
 
+      # macOS only lets the main thread create a window, and baseview trips a debug-build null check
+      # while attaching its view. Either one aborts the standalone the moment it opens, so start it
+      # (debug build, silent audio backend) and require that it is still running a few seconds on.
+      - name: Standalone opens its window
+        if: startsWith(matrix.os, 'macos')
+        run: |
+          cargo build -p slackwater --bin slackwater_standalone
+          target/debug/slackwater_standalone --backend dummy &
+          pid=$!
+          sleep 8
+          kill -0 "$pid" || { wait "$pid"; echo "standalone exited early (status $?)"; exit 1; }
+          kill "$pid"
+
       - name: Clean previous plugin bundles
         run: rm -rf target/bundled
 

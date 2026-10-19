@@ -20,3 +20,9 @@ inherits = "release"
 debug = true
 strip = "none"
 
+# baseview's macOS view sends `isKeyWindow` to a window that is still nil while the view is being
+# attached (`become_first_responder`). Sending a message to nil is harmless in Objective-C and in
+# release builds, but a debug build checks the null pointer and aborts the standalone. Turn that
+# debug-only check off for baseview in debug builds.
+[profile.dev.package.baseview]
+debug-assertions = false
